@@ -19,6 +19,7 @@ public class USBBus {
         case deviceCriteriaNotUnique
     }
 
+    #if false
     static func checkCall(_ rawResult: Int32, onError: (String) throws -> Never) {
         let result = libusb_error(rawValue: rawResult)
         guard result == LIBUSB_SUCCESS else {
@@ -29,18 +30,23 @@ public class USBBus {
 
     /// Shared libusb context, for use in libusb_init, etc.
     var ctx: OpaquePointer? = nil
+    #endif
 
     public init() {
         // FIXME: how to do this better, and where?
         logger.logLevel = .trace
 
+        #if false
         Self.checkCall(libusb_init(&ctx)) { msg in // deinit: libusb_exit
             fatalError("libusb_init failed: \(msg)")
         }
+        #endif
     }
 
     deinit {
+        #if false
         libusb_exit(ctx)
+        #endif
     }
 
     /// - parameter idVendor: filter found devices by vendor, if not-nil.
@@ -49,6 +55,7 @@ public class USBBus {
     /// - throws: if device is not found or criteria are not unique
     public func findDevice(idVendor: Int?, idProduct: Int?) throws -> USBDevice {
         // scan for devices:
+        #if false
         var devicesBuffer: UnsafeMutablePointer<OpaquePointer?>? = nil
         let deviceCount = libusb_get_device_list(ctx, &devicesBuffer)
         defer {
@@ -78,6 +85,9 @@ public class USBBus {
             throw UsbError.deviceCriteriaNotUnique
         }
         return try USBDevice(subsystem: self, device: details.first!.device)
+        #else
+        throw UsbError.noDeviceMatched
+        #endif
     }
 
 

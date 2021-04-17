@@ -43,6 +43,7 @@ public class USBDevice {
         case claimInterface(String)
     }
 
+    #if false
     let subsystem: USBBus // keep the subsytem alive
     let device: OpaquePointer
     var handle: OpaquePointer? = nil
@@ -51,9 +52,11 @@ public class USBDevice {
     var usbWriteTimeout: UInt32 = 5000  // FIXME
     let writeEndpoint: EndpointAddress
     let readEndpoint: EndpointAddress
+    #endif
 
 
     init(subsystem: USBBus, device: OpaquePointer) throws {
+        #if false
         self.subsystem = subsystem
         self.device = device
 
@@ -96,12 +99,15 @@ public class USBDevice {
         readEndpoint = addresses.first { !$0.isWritable }!
 
         libusb_ref_device(device)  // now we won't throw
+        #endif
     }
 
     deinit {
+        #if false
         libusb_release_interface(handle, interfaceNumber)
         libusb_close(handle)
         libusb_unref_device(device)
+        #endif
     }
 
 
@@ -124,12 +130,14 @@ public class USBDevice {
         case endpoint = 2
         case other = 3
     }
+    #if false
     func controlRequest(type: ControlRequestType, direction: ControlDirection, recipient: ControlRequestRecipient) -> BMRequestType {
         return type.rawValue | direction.rawValue | recipient.rawValue
     }
-
+    #endif
 
     public func controlTransferOut(bRequest: UInt8, value: UInt16, wIndex: UInt16, data: Data? = nil) {
+        #if false
         let requestType = controlRequest(type: .vendor, direction: .hostToDevice, recipient: .device)
 
         var dataCopy = Array(data ?? Data())
@@ -143,8 +151,10 @@ public class USBDevice {
             // FIXME: should probably throw rather than abort, and maybe not all calls need to be this strict
             fatalError("controlTransferOut failed")
         }
+        #endif
     }
 
+    #if false
     func controlTransfer(requestType: BMRequestType, bRequest: UInt8, wValue: UInt16, wIndex: UInt16, data: UnsafeMutablePointer<UInt8>!, wLength: UInt16, timeout: UInt32) -> Int32 {
         // USB 2.0 9.3.4: wIndex
         // some interpretations (high bits 0):
@@ -156,9 +166,11 @@ public class USBDevice {
         // FIXME: could we make .standard calls more typesafe?
         libusb_control_transfer(handle, requestType, bRequest, wValue, wIndex, data, wLength, timeout)
     }
+    #endif
 
 
     public func bulkTransferOut(msg: Data) {
+        #if false
         let outgoingCount = Int32(msg.count)
 
         var bytesTransferred = Int32(0)
@@ -173,9 +185,11 @@ public class USBDevice {
         guard outgoingCount == bytesTransferred else {
             fatalError("not all bytes sent")
         }
+        #endif
     }
 
     public func bulkTransferIn() -> Data {
+        #if false
         let bufSize = 1024 // FIXME: tell the device about this!
         var readBuffer = Array(repeating: UInt8(0), count: bufSize)
         var readCount = Int32(0)
@@ -185,5 +199,8 @@ public class USBDevice {
             fatalError("bulkTransfer read returned \(result): \(errorMessage)")
         }
         return Data(readBuffer.prefix(Int(readCount))) // FIXME: Xcode 11.6 / Swift 5.2.4: explicit constructor is needed to avoid crash in Data subrange if we just return the prefix!! This seems like a bug????
+        #else
+        return Data()
+        #endif
     }
 }
