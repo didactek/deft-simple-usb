@@ -8,7 +8,11 @@
 //
 
 import Foundation
+#if false
 import CLibUSB
+#else
+import IOUSBHost
+#endif
 
 
 /// Bridge to the C library [libusb](https://libusb.info) functions imported by CLibUSB.
@@ -106,6 +110,7 @@ public class USBBus {
 
     }
 
+    #if false
     /// Read the device descriptor.
     ///
     /// - Parameter device: Handle from libusb_get_device_list.
@@ -123,5 +128,6 @@ public class USBBus {
             idProduct: Int(descriptor.idProduct),
             bNumConfigurations: Int(descriptor.bNumConfigurations))
     }
+    #endif
 
 }

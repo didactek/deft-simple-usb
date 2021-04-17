@@ -9,12 +9,17 @@
 
 import Foundation
 import Logging
+#if false
 import CLibUSB
+#else
+import IOUSBHost
+#endif
 
 
 var logger = Logger(label: "com.didactek.ftdi-synchronous-serial.main")
 // FIXME: how to default configuration to debug?
 
+#if false
 struct EndpointAddress {
     typealias RawValue = UInt8
     let rawValue: RawValue
@@ -33,7 +38,7 @@ struct EndpointAddress {
         }
     }
 }
-
+#endif
 
 public class USBDevice {
 
