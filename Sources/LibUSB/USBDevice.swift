@@ -57,11 +57,24 @@ public class USBDevice {
     var usbWriteTimeout: UInt32 = 5000  // FIXME
     let writeEndpoint: EndpointAddress
     let readEndpoint: EndpointAddress
+    #else
+//    let device: IOUSBHostPipe
     #endif
 
+    #if true
+    init(device: IOUSBHostDevice) {
+        // like the libusb version:
+        // get configuration
+        // assume configuration zero
+        // check bNumInterfaces
+        // use interfaceNumber (constant zero)
+        // claim interface
+        // get write and read endpoints
 
+    }
+    // copy pipe from USB subsystem (USBBus is basically a IOUSBHostInterface
+    #else
     init(subsystem: USBBus, device: OpaquePointer) throws {
-        #if false
         self.subsystem = subsystem
         self.device = device
 
@@ -104,8 +117,8 @@ public class USBDevice {
         readEndpoint = addresses.first { !$0.isWritable }!
 
         libusb_ref_device(device)  // now we won't throw
-        #endif
     }
+    #endif
 
     deinit {
         #if false

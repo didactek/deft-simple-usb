@@ -115,14 +115,13 @@ public class USBBus {
 
         // FIXME: IOServiceGetMatchingService doesn't throw and its return type isn't an optional.
         // How is an error indicated? Making a guess that error is indicated by zero (or -1 better? or?):
-        //        guard service != 0 else {
-        //            throw UsbError.noDeviceMatched
-        //        }
+        guard service != 0 else {
+            throw UsbError.noDeviceMatched
+        }
 
         let device = try! IOUSBHostDevice.init(__ioService: service, options: [/*.deviceCapture*/], queue: nil, interestHandler: nil)
-        print("survived!")
 
-        throw UsbError.noDeviceMatched  // Or do something with the device
+        return USBDevice(device: device)
         #else  // not IOUSBHost implementation (now libusb)
         var devicesBuffer: UnsafeMutablePointer<OpaquePointer?>? = nil
         let deviceCount = libusb_get_device_list(ctx, &devicesBuffer)
