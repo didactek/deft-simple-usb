@@ -17,6 +17,9 @@ import IOUSBHost
 
 /// Bridge to the C library [libusb](https://libusb.info) functions imported by CLibUSB.
 /// Configure the subsystem and find devices attached to the bus.
+///
+/// On macOS, the bus services are always available, so an "object" of this type is just a pass-through
+/// to IOUSBHost services.
 public class USBBus {
     enum UsbError: Error {
         case noDeviceMatched
@@ -44,6 +47,7 @@ public class USBBus {
         Self.checkCall(libusb_init(&ctx)) { msg in // deinit: libusb_exit
             fatalError("libusb_init failed: \(msg)")
         }
+        #else
         #endif
     }
 
@@ -59,7 +63,44 @@ public class USBBus {
     /// - throws: if device is not found or criteria are not unique
     public func findDevice(idVendor: Int?, idProduct: Int?) throws -> USBDevice {
         // scan for devices:
-        #if false
+        #if true
+        // create a matching dictionary:
+//        let deviceSearchPattern = IOUSBHostDevice.createMatchingDictionary(
+//            vendorID: idVendor,
+//            productID: idProduct,
+//            bcdDevice: nil,
+//            deviceClass: nil,
+//            deviceSubclass: nil,
+//            deviceProtocol: nil,
+//            speed: nil,
+//            productIDArray: nil)
+
+        // FIXME: will bridge to CFDictionary; confirm value type?
+        let deviceSearchPattern: [IOUSBHostMatchingPropertyKey : String?] = [
+            // FIXME: surely there's a less-verbose idiom for this?
+            .vendorID : idVendor != nil ? String(idVendor!) : nil,
+            .productID : idProduct != nil ? String(idProduct!) : nil,
+        ]
+
+        let service = IOServiceGetMatchingService(kIOMasterPortDefault, deviceSearchPattern as CFDictionary)
+        print("service is", service)
+        print(deviceSearchPattern)
+        // 3331, 4611 when device not attached. This feels more like a "success" to me;
+        // perhaps the master port domain isn't what we need for USB, and the vendor/product
+        // keys are effectively ignored?
+        // Same sort of values when device is attached. Search is probably wrong.
+
+        // FIXME: IOServiceGetMatchingService doesn't throw and its return type isn't an optional.
+        // How is an error indicated? Making a guess that error is indicated by zero (or -1 better? or?):
+        //        guard service != 0 else {
+        //            throw UsbError.noDeviceMatched
+        //        }
+
+        let device = try! IOUSBHostDevice.init(__ioService: service, options: [.deviceCapture], queue: nil, interestHandler: nil)
+        print("survived!")
+
+        throw UsbError.noDeviceMatched  // Or do something with the device
+        #else
         var devicesBuffer: UnsafeMutablePointer<OpaquePointer?>? = nil
         let deviceCount = libusb_get_device_list(ctx, &devicesBuffer)
         defer {
@@ -89,8 +130,6 @@ public class USBBus {
             throw UsbError.deviceCriteriaNotUnique
         }
         return try USBDevice(subsystem: self, device: details.first!.device)
-        #else
-        throw UsbError.noDeviceMatched
         #endif
     }
 
