@@ -65,6 +65,7 @@ public class USBDevice {
     init(device: IOUSBHostDevice) {
         // like the libusb version:
         // get configuration
+        print(device.deviceDescriptor?.pointee)
         // assume configuration zero
         // check bNumInterfaces
         // use interfaceNumber (constant zero)
