@@ -83,8 +83,9 @@ public class USBBus {
         #else
         // FIXME: will bridge to CFDictionary; confirm value type?
         let deviceSearchPattern: [IOUSBHostMatchingPropertyKey : String?] = [
-            .vendorID : vendorID,
-            .productID : productID,
+//            .vendorID : vendorID,
+//            .productID : productID,
+            :
         ]
         let deviceDomain = [ "IOProviderClass": "IOUSBHostDevice" ]
         let searchRequest = (deviceSearchPattern as NSDictionary).mutableCopy() as! NSMutableDictionary
@@ -118,7 +119,7 @@ public class USBBus {
         //            throw UsbError.noDeviceMatched
         //        }
 
-        let device = try! IOUSBHostDevice.init(__ioService: service, options: [.deviceCapture], queue: nil, interestHandler: nil)
+        let device = try! IOUSBHostDevice.init(__ioService: service, options: [/*.deviceCapture*/], queue: nil, interestHandler: nil)
         print("survived!")
 
         throw UsbError.noDeviceMatched  // Or do something with the device
