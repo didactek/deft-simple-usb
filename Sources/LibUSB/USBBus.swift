@@ -63,26 +63,48 @@ public class USBBus {
     /// - throws: if device is not found or criteria are not unique
     public func findDevice(idVendor: Int?, idProduct: Int?) throws -> USBDevice {
         // scan for devices:
-        #if true
+        #if true  // IOUSBHost implementation (vs. libusb)
         // create a matching dictionary:
-//        let deviceSearchPattern = IOUSBHostDevice.createMatchingDictionary(
-//            vendorID: idVendor,
-//            productID: idProduct,
-//            bcdDevice: nil,
-//            deviceClass: nil,
-//            deviceSubclass: nil,
-//            deviceProtocol: nil,
-//            speed: nil,
-//            productIDArray: nil)
+        // FIXME: surely there's a less-verbose idiom for these conditionals?
+        let vendorID : String? = idVendor != nil ? String(idVendor!) : nil
+        let productID = idProduct != nil ? String(idProduct!) : nil
 
+        #if false  // documentation suggests there is a helper here, but I can't find it:
+        let deviceSearchPattern = IOUSBHostDevice.createMatchingDictionary(
+            vendorID: idVendor,
+            productID: idProduct,
+            bcdDevice: nil,
+            deviceClass: nil,
+            deviceSubclass: nil,
+            deviceProtocol: nil,
+            speed: nil,
+            productIDArray: nil)
+        let service = IOServiceGetMatchingService(kIOMasterPortDefault, deviceSearchPattern)
+        #else
         // FIXME: will bridge to CFDictionary; confirm value type?
         let deviceSearchPattern: [IOUSBHostMatchingPropertyKey : String?] = [
-            // FIXME: surely there's a less-verbose idiom for this?
-            .vendorID : idVendor != nil ? String(idVendor!) : nil,
-            .productID : idProduct != nil ? String(idProduct!) : nil,
+            .vendorID : vendorID,
+            .productID : productID,
         ]
+        let deviceDomain = [ "IOProviderClass": "IOUSBHostDevice" ]
+        let searchRequest = (deviceSearchPattern as NSDictionary).mutableCopy() as! NSMutableDictionary
+        searchRequest.addEntries(from: deviceDomain)
 
-        let service = IOServiceGetMatchingService(kIOMasterPortDefault, deviceSearchPattern as CFDictionary)
+        print(searchRequest)  // this looks *very* good: keys include 'idVendor', which is USB standard terminology
+        // FIXME: but it is missing the 'IOProviderClass = IOUSBHostDevice' that the Objective-C call
+        // to IOUSBHostDevice.createMatchingDictionary adds.
+
+
+        #if true  // get matching service in the singular
+        let service = IOServiceGetMatchingService(kIOMasterPortDefault, searchRequest)
+        #else  // try iterator approach, but remarkably similar to singular:
+
+        var existing: io_iterator_t = 0
+        let _ = IOServiceGetMatchingServices(kIOMasterPortDefault, cfDeviceSearchPattern, &existing)
+        let service = existing
+        #endif
+        #endif
+
         print("service is", service)
         print(deviceSearchPattern)
         // 3331, 4611 when device not attached. This feels more like a "success" to me;
@@ -100,7 +122,7 @@ public class USBBus {
         print("survived!")
 
         throw UsbError.noDeviceMatched  // Or do something with the device
-        #else
+        #else  // not IOUSBHost implementation (now libusb)
         var devicesBuffer: UnsafeMutablePointer<OpaquePointer?>? = nil
         let deviceCount = libusb_get_device_list(ctx, &devicesBuffer)
         defer {
