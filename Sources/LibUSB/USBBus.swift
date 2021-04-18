@@ -81,11 +81,11 @@ public class USBBus {
             productIDArray: nil)
         let service = IOServiceGetMatchingService(kIOMasterPortDefault, deviceSearchPattern)
         #else
-        #if false // this fails, even though vendorID and productID match descriptor.
+        #if true // this fails, even though vendorID and productID match descriptor.
         // Could there be an issue where CFDictionary values can be not-strings but are integers?
-        let deviceSearchPattern: [IOUSBHostMatchingPropertyKey : String?] = [
-            .vendorID : vendorID,
-            .productID : productID,
+        let deviceSearchPattern: [IOUSBHostMatchingPropertyKey : Int] = [
+            .vendorID : idVendor!,
+            .productID : idProduct!,
         ]
         #else
         let deviceSearchPattern: [IOUSBHostMatchingPropertyKey : String?] = [:]
