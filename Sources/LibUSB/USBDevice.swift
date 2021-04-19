@@ -59,6 +59,8 @@ public class USBDevice {
     let readEndpoint: EndpointAddress
     #else
 //    let device: IOUSBHostPipe
+    let writeEndpoint: IOUSBHostPipe
+    let readEndpoint: IOUSBHostPipe
     #endif
 
     #if true
@@ -90,7 +92,6 @@ public class USBDevice {
             .productID: Int(device.deviceDescriptor!.pointee.idProduct),
             .interfaceNumber: 0,
             .configurationValue: Int(configuration.bConfigurationValue),
-            // FIXME: get the following three from the interface description:
             .interfaceClass: Int(interfaceDescription.pointee.bInterfaceClass),
             .interfaceSubClass: Int(interfaceDescription.pointee.bInterfaceSubClass),
             .interfaceProtocol: Int(interfaceDescription.pointee.bInterfaceProtocol),
@@ -108,6 +109,28 @@ public class USBDevice {
 
 
         // get write and read endpoints
+        // FIXME: who knows if these are the right way around!
+        var endpointIterator = IOUSBGetNextEndpointDescriptor(interface.configurationDescriptor, interface.interfaceDescriptor, nil)!
+
+        writeEndpoint = try interface.copyPipe(withAddress: Int(endpointIterator.pointee.bEndpointAddress))
+        print(writeEndpoint)
+
+        #if false // syntax error:
+        // Cannot convert value of type 'UnsafePointer<IOUSBEndpointDescriptor>' to expected argument type 'Optional<UnsafePointer<IOUSBDescriptorHeader>>'
+
+        endpointIterator = IOUSBGetNextEndpointDescriptor(interface.configurationDescriptor, interface.interfaceDescriptor, endpointIterator)
+        #else
+        var nextPosition: UnsafePointer<IOUSBEndpointDescriptor>? = nil  // bummer this can't be a let/uninitialized here
+        endpointIterator.withMemoryRebound(to: IOUSBDescriptorHeader.self, capacity: 1) {
+            nextPosition = IOUSBGetNextEndpointDescriptor(interface.configurationDescriptor, interface.interfaceDescriptor, $0)
+        }
+        endpointIterator = nextPosition!
+        #endif
+
+        // find the endpoint addresses for read and write
+
+        readEndpoint = try interface.copyPipe(withAddress: Int(endpointIterator.pointee.bEndpointAddress))
+        print(readEndpoint)
     }
     // copy pipe from USB subsystem (USBBus is basically a IOUSBHostInterface
     #else
