@@ -62,16 +62,52 @@ public class USBDevice {
     #endif
 
     #if true
-    init(device: IOUSBHostDevice) {
+    init(device: IOUSBHostDevice) throws {
         // like the libusb version:
         // get configuration
         print(device.deviceDescriptor?.pointee)
         // assume configuration zero
+        let configuration = try! device.configurationDescriptor(with: 0).pointee
+        print(configuration)
         // check bNumInterfaces
-        // use interfaceNumber (constant zero)
-        // claim interface
-        // get write and read endpoints
+        let interfacesCount = configuration.bNumInterfaces
+        logger.debug("there are \(interfacesCount) interfaces on this device")
 
+        // FIXME: device.configure(withValue: 0)  // is unavailable in Swift: Please use the refined for Swift API
+        //device.configure(withValue: 0)
+        // use interfaceNumber (constant zero)
+        let interfaceDescriptionPtr = IOUSBGetNextInterfaceDescriptor(device.configurationDescriptor, nil /*zeroeth previous; first is next*/)
+        // claim interface
+        guard let interfaceDescription = interfaceDescriptionPtr else {
+            throw USBError.claimInterface("IOUSBGetNextInterfaceDescriptor")
+        }
+
+        // Create lookup for the service
+        // FIXME: I'm sure the framework provides a better helper for constructing this;
+        // I just can't seem to find it....
+        let interfaceSearchInts: [IOUSBHostMatchingPropertyKey : Int] = [
+            .vendorID: Int(device.deviceDescriptor!.pointee.idVendor),
+            .productID: Int(device.deviceDescriptor!.pointee.idProduct),
+            .interfaceNumber: 0,
+            .configurationValue: Int(configuration.bConfigurationValue),
+            // FIXME: get the following three from the interface description:
+            .interfaceClass: Int(interfaceDescription.pointee.bInterfaceClass),
+            .interfaceSubClass: Int(interfaceDescription.pointee.bInterfaceSubClass),
+            .interfaceProtocol: Int(interfaceDescription.pointee.bInterfaceProtocol),
+        ]
+        let interfaceSearchStrings: [IOUSBHostMatchingPropertyKey : Int] = [
+            :
+        ]
+        let searchRequest = (interfaceSearchInts as NSDictionary).mutableCopy() as! NSMutableDictionary
+        searchRequest.addEntries(from: interfaceSearchStrings)
+        searchRequest.addEntries(from: ["IOProviderClass" : "IOUSBHostInterface"])
+
+        let service = IOServiceGetMatchingService(kIOMasterPortDefault, searchRequest)
+
+        let interface = try! IOUSBHostInterface.init(__ioService: service, options: [], queue: nil, interestHandler: nil)
+
+
+        // get write and read endpoints
     }
     // copy pipe from USB subsystem (USBBus is basically a IOUSBHostInterface
     #else

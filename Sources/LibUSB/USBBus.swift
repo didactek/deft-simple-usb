@@ -122,9 +122,9 @@ public class USBBus {
             throw UsbError.noDeviceMatched
         }
 
-        let device = try! IOUSBHostDevice.init(__ioService: service, options: [/*.deviceCapture*/], queue: nil, interestHandler: nil)
+        let device = try IOUSBHostDevice.init(__ioService: service, options: [/*.deviceCapture*/], queue: nil, interestHandler: nil)
 
-        return USBDevice(device: device)
+        return try USBDevice(device: device)
         #else  // not IOUSBHost implementation (now libusb)
         var devicesBuffer: UnsafeMutablePointer<OpaquePointer?>? = nil
         let deviceCount = libusb_get_device_list(ctx, &devicesBuffer)
