@@ -118,15 +118,22 @@ public class USBDevice {
         logger.debug("created \(endpointPipes.count) pipes")
 
         // FIXME: only getting two pipes.
-        guard endpointPipes.count == 3 else {
-            throw USBError.claimInterface("expected pipes for control, bulk in, bulk out")
+        guard endpointPipes.count == 2 else {
+            throw USBError.claimInterface("expected pipes for control and bulk")
         }
 
         // FIXME: maybe 1 write, 1 read assumes wrong semantics.
         // Maybe we get Control (with read and write streams) +
-        // Bulk (with read nad write streams)?
+        // Bulk (with read and write streams)?
         writeEndpoint = endpointPipes[1]
-        readEndpoint = endpointPipes[2]
+        readEndpoint = endpointPipes[1]
+
+        // enableStreams() fails on both pipes. Not the pattern.
+        let controlEndpoint = endpointPipes[0]
+        // hardcoding OK; documentation says 1-offset
+        try! controlEndpoint.enableStreams()
+        _ /*controlIn*/ = try! controlEndpoint.copyStream(withStreamID: 1)
+        _ /*controlOut*/ = try! controlEndpoint.copyStream(withStreamID: 2)
     }
     // copy pipe from USB subsystem (USBBus is basically a IOUSBHostInterface
     #else
