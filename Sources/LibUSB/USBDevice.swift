@@ -57,7 +57,6 @@ public class USBDevice {
     let writeEndpoint: EndpointAddress
     let readEndpoint: EndpointAddress
     #else
-//    let device: IOUSBHostPipe
     let writeEndpoint: IOUSBHostPipe
     let readEndpoint: IOUSBHostPipe
     #endif
@@ -75,9 +74,7 @@ public class USBDevice {
         let interfacesCount = configuration.bNumInterfaces
         logger.debug("there are \(interfacesCount) interfaces on this device")
 
-        // FIXME: device.configure(withValue: 0)  // is unavailable in Swift: Please use the refined for Swift API
-        //device.configure(withValue: 0)
-        // use interfaceNumber (constant zero)
+
         let interfaceDescriptionPtr = IOUSBGetNextInterfaceDescriptor(device.configurationDescriptor, nil /*zeroeth previous; first is next*/)
         // claim interface
         guard let interfaceDescription = interfaceDescriptionPtr else {
@@ -110,23 +107,28 @@ public class USBDevice {
 
         // get write and read endpoints
         // FIXME: who knows if these are the right way around!
-        var endpointIterator = IOUSBGetNextEndpointDescriptor(interface.configurationDescriptor, interface.interfaceDescriptor, nil)!
-
-        writeEndpoint = try interface.copyPipe(withAddress: Int(endpointIterator.pointee.bEndpointAddress))
-
-        #if false // syntax error:
-        // Cannot convert value of type 'UnsafePointer<IOUSBEndpointDescriptor>' to expected argument type 'Optional<UnsafePointer<IOUSBDescriptorHeader>>'
-
-        endpointIterator = IOUSBGetNextEndpointDescriptor(interface.configurationDescriptor, interface.interfaceDescriptor, endpointIterator)
-        #else
-        var nextPosition: UnsafePointer<IOUSBEndpointDescriptor>? = nil  // bummer this can't be a let/uninitialized here
-        endpointIterator.withMemoryRebound(to: IOUSBDescriptorHeader.self, capacity: 1) {
-            nextPosition = IOUSBGetNextEndpointDescriptor(interface.configurationDescriptor, interface.interfaceDescriptor, $0)
+        var endpointPipes = [IOUSBHostPipe]()
+        var endpointIterator = IOUSBGetNextEndpointDescriptor(interface.configurationDescriptor, interface.interfaceDescriptor, nil)
+        while let endpointFound = endpointIterator {
+            endpointPipes.append(try interface.copyPipe(withAddress: Int(endpointFound.pointee.bEndpointAddress)))
+            var nextPosition: UnsafePointer<IOUSBEndpointDescriptor>? = nil  // bummer this can't be a let/uninitialized here
+            endpointFound.withMemoryRebound(to: IOUSBDescriptorHeader.self, capacity: 1) {
+                nextPosition = IOUSBGetNextEndpointDescriptor(interface.configurationDescriptor, interface.interfaceDescriptor, $0)
+            }
+            endpointIterator = nextPosition
         }
-        endpointIterator = nextPosition!
-        #endif
+        logger.debug("created \(endpointPipes.count) pipes")
 
-        readEndpoint = try interface.copyPipe(withAddress: Int(endpointIterator.pointee.bEndpointAddress))
+        // FIXME: only getting two pipes.
+        guard endpointPipes.count == 3 else {
+            throw USBError.claimInterface("expected pipes for control, bulk in, bulk out")
+        }
+
+        // FIXME: maybe 1 write, 1 read assumes wrong semantics.
+        // Maybe we get Control (with read and write streams) +
+        // Bulk (with read nad write streams)?
+        writeEndpoint = endpointPipes[1]
+        readEndpoint = endpointPipes[2]
     }
     // copy pipe from USB subsystem (USBBus is basically a IOUSBHostInterface
     #else
