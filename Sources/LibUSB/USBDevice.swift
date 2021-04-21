@@ -111,11 +111,9 @@ public class USBDevice {
         var endpointIterator = IOUSBGetNextEndpointDescriptor(interface.configurationDescriptor, interface.interfaceDescriptor, nil)
         while let endpointFound = endpointIterator {
             endpointPipes.append(try interface.copyPipe(withAddress: Int(endpointFound.pointee.bEndpointAddress)))
-            var nextPosition: UnsafePointer<IOUSBEndpointDescriptor>? = nil  // bummer this can't be a let/uninitialized here
             endpointFound.withMemoryRebound(to: IOUSBDescriptorHeader.self, capacity: 1) {
-                nextPosition = IOUSBGetNextEndpointDescriptor(interface.configurationDescriptor, interface.interfaceDescriptor, $0)
+                endpointIterator = IOUSBGetNextEndpointDescriptor(interface.configurationDescriptor, interface.interfaceDescriptor, $0)
             }
-            endpointIterator = nextPosition
         }
         logger.debug("created \(endpointPipes.count) pipes")
 
