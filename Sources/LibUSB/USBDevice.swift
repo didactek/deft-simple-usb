@@ -54,7 +54,6 @@ public class USBDevice {
     var handle: OpaquePointer? = nil
     let interfaceNumber: Int32 = 0
 
-    var usbWriteTimeout: UInt32 = 5000  // FIXME
     let writeEndpoint: EndpointAddress
     let readEndpoint: EndpointAddress
     #else
@@ -62,6 +61,7 @@ public class USBDevice {
     let writeEndpoint: IOUSBHostPipe
     let readEndpoint: IOUSBHostPipe
     #endif
+    var usbWriteTimeout: UInt32 = 5000  // FIXME
 
     #if true
     init(device: IOUSBHostDevice) throws {
@@ -113,7 +113,6 @@ public class USBDevice {
         var endpointIterator = IOUSBGetNextEndpointDescriptor(interface.configurationDescriptor, interface.interfaceDescriptor, nil)!
 
         writeEndpoint = try interface.copyPipe(withAddress: Int(endpointIterator.pointee.bEndpointAddress))
-        print(writeEndpoint)
 
         #if false // syntax error:
         // Cannot convert value of type 'UnsafePointer<IOUSBEndpointDescriptor>' to expected argument type 'Optional<UnsafePointer<IOUSBDescriptorHeader>>'
@@ -127,10 +126,7 @@ public class USBDevice {
         endpointIterator = nextPosition!
         #endif
 
-        // find the endpoint addresses for read and write
-
         readEndpoint = try interface.copyPipe(withAddress: Int(endpointIterator.pointee.bEndpointAddress))
-        print(readEndpoint)
     }
     // copy pipe from USB subsystem (USBBus is basically a IOUSBHostInterface
     #else
@@ -208,14 +204,13 @@ public class USBDevice {
         case endpoint = 2
         case other = 3
     }
-    #if false
+
+    // basically IOUSBHostPipe.IOUSBHostDeviceRequestType
     func controlRequest(type: ControlRequestType, direction: ControlDirection, recipient: ControlRequestRecipient) -> BMRequestType {
         return type.rawValue | direction.rawValue | recipient.rawValue
     }
-    #endif
 
     public func controlTransferOut(bRequest: UInt8, value: UInt16, wIndex: UInt16, data: Data? = nil) {
-        #if false
         let requestType = controlRequest(type: .vendor, direction: .hostToDevice, recipient: .device)
 
         var dataCopy = Array(data ?? Data())
@@ -229,10 +224,8 @@ public class USBDevice {
             // FIXME: should probably throw rather than abort, and maybe not all calls need to be this strict
             fatalError("controlTransferOut failed")
         }
-        #endif
     }
 
-    #if false
     func controlTransfer(requestType: BMRequestType, bRequest: UInt8, wValue: UInt16, wIndex: UInt16, data: UnsafeMutablePointer<UInt8>!, wLength: UInt16, timeout: UInt32) -> Int32 {
         // USB 2.0 9.3.4: wIndex
         // some interpretations (high bits 0):
@@ -242,13 +235,39 @@ public class USBDevice {
         // Table 9.4 Standard Device Requests
         // ControlRequestType.vendor semantics may vary.
         // FIXME: could we make .standard calls more typesafe?
+        #if false
         libusb_control_transfer(handle, requestType, bRequest, wValue, wIndex, data, wLength, timeout)
+        #else
+        // The Objective-C API provides a "sendControlRequest" which is not avaliable
+        // in the Swift API. The following is my attempt to discover an alternative
+        // pattern.
+
+        // IOUSBHostDeviceRequestType is the only method documented in the "Send Control Requests"
+        // section, but it is a helper that constructs the request type (BMRequestType in the linux
+        // implementation here).
+
+        // Since in USB, the control endpoint is endpoint 0, maybe I do all the
+        // work of formatting and writing on that endpoint? Not sure how to both
+        // read and write on a stream...
+
+        // ...but presumably after I have the endpoint, I enable streams, and then
+        // look the streams up, and then enqueue IO on *those*?
+
+        fatalError("control transfer not implemented!")
+        #endif
     }
-    #endif
 
 
     public func bulkTransferOut(msg: Data) {
-        #if false
+        #if true
+        try! writeEndpoint.enqueueIORequest(with: (msg as! NSMutableData), completionTimeout: TimeInterval(usbWriteTimeout), completionHandler: nil)
+
+        // defeat control flow analysis to preserve syntax checking of code after this
+        if Date.init().timeIntervalSince1970 > 5 {
+            fatalError("bulkTransferOut implementation is untested")
+        }
+        // end control flow defeat/runtime warning
+        #else
         let outgoingCount = Int32(msg.count)
 
         var bytesTransferred = Int32(0)
@@ -267,7 +286,18 @@ public class USBDevice {
     }
 
     public func bulkTransferIn() -> Data {
-        #if false
+        #if true
+        let msg = Data()
+        try! writeEndpoint.enqueueIORequest(with: (msg as! NSMutableData), completionTimeout: TimeInterval(usbWriteTimeout), completionHandler: nil)
+
+        // defeat control flow analysis to preserve syntax checking of code after this
+        if Date.init().timeIntervalSince1970 > 5 {
+            fatalError("bulkTransferIn implementation is untested")
+        }
+        // end control flow defeat/runtime warning
+
+        return msg
+        #else
         let bufSize = 1024 // FIXME: tell the device about this!
         var readBuffer = Array(repeating: UInt8(0), count: bufSize)
         var readCount = Int32(0)
@@ -277,8 +307,6 @@ public class USBDevice {
             fatalError("bulkTransfer read returned \(result): \(errorMessage)")
         }
         return Data(readBuffer.prefix(Int(readCount))) // FIXME: Xcode 11.6 / Swift 5.2.4: explicit constructor is needed to avoid crash in Data subrange if we just return the prefix!! This seems like a bug????
-        #else
-        return Data()
         #endif
     }
 }
