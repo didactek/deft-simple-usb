@@ -57,8 +57,9 @@ public class USBDevice {
     let writeEndpoint: EndpointAddress
     let readEndpoint: EndpointAddress
     #else
-    let writeEndpoint: IOUSBHostPipe
-    let readEndpoint: IOUSBHostPipe
+    let buffer: NSMutableData
+    let controlEndpoint: IOUSBHostPipe
+    let bulkEndpoint: IOUSBHostPipe
     #endif
     var usbWriteTimeout: UInt32 = 5000  // FIXME
 
@@ -104,6 +105,8 @@ public class USBDevice {
 
         let interface = try! IOUSBHostInterface.init(__ioService: service, options: [], queue: nil, interestHandler: nil)
 
+        // FIXME: 1024 pulled from air
+        buffer = try! interface.ioData(withCapacity: 1024)
 
         // get write and read endpoints
         // FIXME: who knows if these are the right way around!
@@ -125,15 +128,8 @@ public class USBDevice {
         // FIXME: maybe 1 write, 1 read assumes wrong semantics.
         // Maybe we get Control (with read and write streams) +
         // Bulk (with read and write streams)?
-        writeEndpoint = endpointPipes[1]
-        readEndpoint = endpointPipes[1]
-
-        // enableStreams() fails on both pipes. Not the pattern.
-        let controlEndpoint = endpointPipes[0]
-        // hardcoding OK; documentation says 1-offset
-        try! controlEndpoint.enableStreams()
-        _ /*controlIn*/ = try! controlEndpoint.copyStream(withStreamID: 1)
-        _ /*controlOut*/ = try! controlEndpoint.copyStream(withStreamID: 2)
+        bulkEndpoint = endpointPipes[1]
+        controlEndpoint = endpointPipes[0]
     }
     // copy pipe from USB subsystem (USBBus is basically a IOUSBHostInterface
     #else
@@ -267,7 +263,9 @@ public class USBDevice {
 
     public func bulkTransferOut(msg: Data) {
         #if true
-        try! writeEndpoint.enqueueIORequest(with: (msg as! NSMutableData), completionTimeout: TimeInterval(usbWriteTimeout), completionHandler: nil)
+        buffer.setData(msg)
+        let writeRequest = Data() // FIXME: build request
+        try! bulkEndpoint.enqueueIORequest(with: (writeRequest as! NSMutableData), completionTimeout: TimeInterval(usbWriteTimeout), completionHandler: nil)
 
         // defeat control flow analysis to preserve syntax checking of code after this
         if Date.init().timeIntervalSince1970 > 5 {
@@ -294,8 +292,8 @@ public class USBDevice {
 
     public func bulkTransferIn() -> Data {
         #if true
-        let msg = Data()
-        try! writeEndpoint.enqueueIORequest(with: (msg as! NSMutableData), completionTimeout: TimeInterval(usbWriteTimeout), completionHandler: nil)
+        let readRequest = Data() // FIXME: build request
+        try! bulkEndpoint.enqueueIORequest(with: (readRequest as! NSMutableData), completionTimeout: TimeInterval(usbWriteTimeout), completionHandler: nil)
 
         // defeat control flow analysis to preserve syntax checking of code after this
         if Date.init().timeIntervalSince1970 > 5 {
@@ -303,7 +301,7 @@ public class USBDevice {
         }
         // end control flow defeat/runtime warning
 
-        return msg
+        return Data(buffer)
         #else
         let bufSize = 1024 // FIXME: tell the device about this!
         var readBuffer = Array(repeating: UInt8(0), count: bufSize)
