@@ -216,20 +216,20 @@ public class USBDevice {
     public func controlTransferOut(bRequest: UInt8, value: UInt16, wIndex: UInt16, data: Data? = nil) {
         let requestType = controlRequest(type: .vendor, direction: .hostToDevice, recipient: .device)
 
-        var dataCopy = Array(data ?? Data())
-
         let result = controlTransfer(requestType: requestType,
                                      bRequest: bRequest,
                                      wValue: value, wIndex: wIndex,
-                                     data: &dataCopy,
-                                     wLength: UInt16(dataCopy.count), timeout: usbWriteTimeout)
+                                     data: data,
+                                     wLength: UInt16(data?.count ?? 0), timeout: usbWriteTimeout)
         guard result == 0 else {
             // FIXME: should probably throw rather than abort, and maybe not all calls need to be this strict
             fatalError("controlTransferOut failed")
         }
     }
 
-    func controlTransfer(requestType: BMRequestType, bRequest: UInt8, wValue: UInt16, wIndex: UInt16, data: UnsafeMutablePointer<UInt8>!, wLength: UInt16, timeout: UInt32) -> Int32 {
+    /// Synchronously send USB control transfer.
+    /// - returns: number of bytes transferred (if success)
+    func controlTransfer(requestType: BMRequestType, bRequest: UInt8, wValue: UInt16, wIndex: UInt16, data: Data?, wLength: UInt16, timeout: UInt32) -> Int32 {
         // USB 2.0 9.3.4: wIndex
         // some interpretations (high bits 0):
         //   as endpoint (direction:1/0:3/endpoint:4)
@@ -239,7 +239,10 @@ public class USBDevice {
         // ControlRequestType.vendor semantics may vary.
         // FIXME: could we make .standard calls more typesafe?
         #if false
-        libusb_control_transfer(handle, requestType, bRequest, wValue, wIndex, data, wLength, timeout)
+        var dataCopy = Array(data ?? Data())
+        return dataCopy.withUnsafeMutableBufferPointer {
+            libusb_control_transfer(handle, requestType, bRequest, wValue, wIndex, $0.baseAddress, wLength, timeout)
+        }
         #else
         // The Objective-C API provides a "sendControlRequest" which is not avaliable
         // in the Swift API. The following is my attempt to discover an alternative
@@ -250,13 +253,32 @@ public class USBDevice {
         // implementation here).
 
         // Since in USB, the control endpoint is endpoint 0, maybe I do all the
-        // work of formatting and writing on that endpoint? Not sure how to both
-        // read and write on a stream...
+        // work of formatting and writing on that endpoint?
 
-        // ...but presumably after I have the endpoint, I enable streams, and then
-        // look the streams up, and then enqueue IO on *those*?
+        // Format described in [USB 2.0](https://www.usb.org/document-library/usb-20-specification) 9.3 USB Device Requests
+        // Protocol is little-endian [USB 2.0](https://www.usb.org/document-library/usb-20-specification) 8.1 Byte/Bit Ordering
+        let wordsSegment = [wValue, wIndex, wLength].map { word in
+            withUnsafeBytes(of: word.littleEndian) { Data($0) }
+        }.joined()
+        let request = NSMutableData(data: Data([
+            requestType,
+            bRequest]) + wordsSegment)
 
-        fatalError("control transfer not implemented!")
+        if let data = data {
+            buffer.setData(data)
+        }
+
+        var bytesSent = 0
+        let resultsAvailable = DispatchSemaphore(value: 1)
+        try! controlEndpoint.enqueueIORequest(with: request, completionTimeout: TimeInterval(usbWriteTimeout)) {
+            status, bytesTransferred in
+            bytesSent = bytesTransferred
+            resultsAvailable.signal()
+        }
+        resultsAvailable.wait()
+
+//        fatalError("control transfer not implemented!")
+        return Int32(bytesSent)
         #endif
     }
 
