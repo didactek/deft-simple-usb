@@ -74,7 +74,8 @@ public class USBDevice {
     #else  // IOUSBHost implementation
     let buffer: NSMutableData
     let controlEndpoint: IOUSBHostPipe
-    let bulkEndpoint: IOUSBHostPipe
+    let writeEndpoint: IOUSBHostPipe
+    let readEndpoint: IOUSBHostPipe
     #endif
     var usbWriteTimeout: UInt32 = 5000  // FIXME
 
@@ -84,13 +85,12 @@ public class USBDevice {
         logger.trace("Configuring USBDevice with descriptor \(device.deviceDescriptor!.pointee)")
 
         // get configuration
-        // assume configuration zero
+        // assume configuration zero (and throws with configuration 1 or -1)
         let configuration = try! device.configurationDescriptor(with: 0).pointee
 
         // check bNumInterfaces
         let interfacesCount = configuration.bNumInterfaces
         logger.debug("Device supports \(interfacesCount) interfaces")
-
 
         let interfaceDescriptionPtr = IOUSBGetNextInterfaceDescriptor(device.configurationDescriptor, nil /*zeroeth previous; first is next*/)
         // claim interface
@@ -129,6 +129,17 @@ public class USBDevice {
         // FIXME: who knows if these are the right way around!
         var endpointPipes = [IOUSBHostPipe]()
         var endpointIterator = IOUSBGetNextEndpointDescriptor(interface.configurationDescriptor, interface.interfaceDescriptor, nil)
+        logger.trace("Interface configurationDescriptor is \(interface.configurationDescriptor.pointee)")
+        // configurationDescriptor at this point is:
+//        IOUSBConfigurationDescriptor(bLength: 9,
+//                                     bDescriptorType: 2,
+//                                     wTotalLength: 32,
+//                                     bNumInterfaces: 1,
+//                                     bConfigurationValue: 1,
+//                                     iConfiguration: 0,
+//                                     bmAttributes: 128,  // things to do with power
+//                                     MaxPower: 50)
+        logger.trace("Interface interfaceDescriptor is \(interface.interfaceDescriptor.pointee)")
         while let endpointFound = endpointIterator {
             logger.trace("Making pipe for endpoint: \(endpointFound.pointee)")
             endpointPipes.append(try interface.copyPipe(withAddress: Int(endpointFound.pointee.bEndpointAddress)))
@@ -143,11 +154,11 @@ public class USBDevice {
             throw USBError.claimInterface("expected pipes for control and bulk")
         }
 
-        // FIXME: maybe 1 write, 1 read assumes wrong semantics.
-        // Maybe we get Control (with read and write streams) +
-        // Bulk (with read and write streams)?
-        bulkEndpoint = endpointPipes[1]
-        controlEndpoint = endpointPipes[0]
+        writeEndpoint = endpointPipes.first(where: { EndpointAddress(rawValue: $0.endpointAddress).isWritable })!
+        readEndpoint = endpointPipes.first(where: { !EndpointAddress(rawValue: $0.endpointAddress).isWritable })!
+
+        // FIXME: trying to find the control endpoint. Satisfying the compiler in the interim:
+        controlEndpoint = writeEndpoint
 
         // FIXME: remove nextInterface checking. This is just to clarify that we can only obtain
         // one interface using IOUSBGetNextInterfaceDescriptor.
@@ -242,15 +253,17 @@ public class USBDevice {
 
     public func controlTransferOut(bRequest: UInt8, value: UInt16, wIndex: UInt16, data: Data? = nil) {
         let requestType = controlRequest(type: .vendor, direction: .hostToDevice, recipient: .device)
+        let requestSize = data?.count ?? 0
 
         let result = controlTransfer(requestType: requestType,
                                      bRequest: bRequest,
                                      wValue: value, wIndex: wIndex,
                                      data: data,
-                                     wLength: UInt16(data?.count ?? 0), timeout: usbWriteTimeout)
-        guard result == 0 else {
+                                     wLength: UInt16(requestSize), timeout: usbWriteTimeout)
+
+        guard result == requestSize else {
             // FIXME: should probably throw rather than abort, and maybe not all calls need to be this strict
-            fatalError("controlTransferOut failed")
+            fatalError("controlTransferOut failed: transferred \(result) bytes of \(requestSize)")
         }
     }
 
@@ -299,7 +312,10 @@ public class USBDevice {
         let resultsAvailable = DispatchSemaphore(value: 0)
         try! controlEndpoint.enqueueIORequest(with: request, completionTimeout: TimeInterval(usbWriteTimeout)) {
             status, bytesTransferred in
-            bytesSent = bytesTransferred  // FIXME: getting 2 instead of 0? Something awry with request?
+            guard bytesTransferred >= 8 else {
+                fatalError("Failed to send at least the 8 bytes of the control transfer packet")
+            }
+            bytesSent = bytesTransferred - 8
             resultsAvailable.signal()
         }
         resultsAvailable.wait()
@@ -319,26 +335,20 @@ public class USBDevice {
 
         var bytesSent = 0
         let resultsAvailable = DispatchSemaphore(value: 0)
-        try! bulkEndpoint.enqueueIORequest(with: payload, completionTimeout: TimeInterval(usbWriteTimeout)) {
+        try! writeEndpoint.enqueueIORequest(with: payload, completionTimeout: TimeInterval(usbWriteTimeout)) {
             status, bytesTransferred in
             logger.trace("bulkTransferOut completed with status \(status); \(bytesTransferred) of \(msg.count) bytes transferred")
+            guard status == 0 else {
+                fatalError("bulkTransferOut IORequest failure: code \(status)")
+            }
             bytesSent = bytesTransferred
             resultsAvailable.signal()
         }
         resultsAvailable.wait()
 
-//        guard result == 0 else {
-//            fatalError("bulkTransfer returned \(result)")
-//        }
         guard msg.count == bytesSent else {
-            fatalError("not all bytes sent")
+            fatalError("not all msg bytes sent")
         }
-
-        // defeat control flow analysis to preserve syntax checking of code after this
-        if Date.init().timeIntervalSince1970 > 5 {
-            fatalError("bulkTransferOut implementation is untested")
-        }
-        // end control flow defeat/runtime warning
         #else  // libusb implementation
         let outgoingCount = Int32(msg.count)
 
@@ -361,10 +371,10 @@ public class USBDevice {
         #if true  // IOUSBHost implementation
         var bytesReceived = 0
         let resultsAvailable = DispatchSemaphore(value: 0)
-        try! bulkEndpoint.enqueueIORequest(with: nil, completionTimeout: TimeInterval(usbWriteTimeout)) {
+        try! readEndpoint.enqueueIORequest(with: nil, completionTimeout: TimeInterval(usbWriteTimeout)) {
             status, bytesTransferred in
             guard status == 0 else {
-                fatalError("bulkTransfer read returned \(status)")
+                fatalError("bulkTransfer read status: \(status)")
             }
             bytesReceived = bytesTransferred
             resultsAvailable.signal()
