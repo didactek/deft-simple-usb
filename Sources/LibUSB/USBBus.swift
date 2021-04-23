@@ -66,8 +66,6 @@ public class USBBus {
         #if true  // IOUSBHost implementation (vs. libusb)
         // create a matching dictionary:
         // FIXME: surely there's a less-verbose idiom for these conditionals?
-        let vendorID : String? = idVendor != nil ? String(idVendor!) : nil
-        let productID = idProduct != nil ? String(idProduct!) : nil
 
         #if false  // documentation suggests there is a helper here, but I can't find it:
         let deviceSearchPattern = IOUSBHostDevice.createMatchingDictionary(
@@ -81,51 +79,30 @@ public class USBBus {
             productIDArray: nil)
         let service = IOServiceGetMatchingService(kIOMasterPortDefault, deviceSearchPattern)
         #else
-        #if true // this fails, even though vendorID and productID match descriptor.
-        // Could there be an issue where CFDictionary values can be not-strings but are integers?
         let deviceSearchPattern: [IOUSBHostMatchingPropertyKey : Int] = [
             .vendorID : idVendor!,
             .productID : idProduct!,
         ]
-        #else
-        let deviceSearchPattern: [IOUSBHostMatchingPropertyKey : String?] = [:]
-        #endif
         let deviceDomain = [ "IOProviderClass": "IOUSBHostDevice" ]
         let searchRequest = (deviceSearchPattern as NSDictionary).mutableCopy() as! NSMutableDictionary
         searchRequest.addEntries(from: deviceDomain)
 
-        print(searchRequest)  // this looks *very* good: keys include 'idVendor', which is USB standard terminology
-        // FIXME: but it is missing the 'IOProviderClass = IOUSBHostDevice' that the Objective-C call
-        // to IOUSBHostDevice.createMatchingDictionary adds.
-
-
-        #if true  // get matching service in the singular
+        #if true  // FIXME: use iterator approach; throw if not unique
         let service = IOServiceGetMatchingService(kIOMasterPortDefault, searchRequest)
-        #else  // try iterator approach, but remarkably similar to singular:
-
+        guard service != 0 else {
+            throw UsbError.noDeviceMatched
+        }
+        #else  // iterator approach
         var existing: io_iterator_t = 0
         let _ = IOServiceGetMatchingServices(kIOMasterPortDefault, cfDeviceSearchPattern, &existing)
         let service = existing
         #endif
         #endif
 
-        print("service is", service)
-        print(deviceSearchPattern)
-        // 3331, 4611 when device not attached. This feels more like a "success" to me;
-        // perhaps the master port domain isn't what we need for USB, and the vendor/product
-        // keys are effectively ignored?
-        // Same sort of values when device is attached. Search is probably wrong.
-
-        // FIXME: IOServiceGetMatchingService doesn't throw and its return type isn't an optional.
-        // How is an error indicated? Making a guess that error is indicated by zero (or -1 better? or?):
-        guard service != 0 else {
-            throw UsbError.noDeviceMatched
-        }
-
         let device = try IOUSBHostDevice.init(__ioService: service, options: [/*.deviceCapture*/], queue: nil, interestHandler: nil)
 
         return try USBDevice(device: device)
-        #else  // not IOUSBHost implementation (now libusb)
+        #else  // libusb implementation
         var devicesBuffer: UnsafeMutablePointer<OpaquePointer?>? = nil
         let deviceCount = libusb_get_device_list(ctx, &devicesBuffer)
         defer {
