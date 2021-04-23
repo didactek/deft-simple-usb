@@ -265,19 +265,18 @@ public class USBDevice {
             bRequest]) + wordsSegment)
 
         if let data = data {
-            buffer.setData(data)
+            data.copyBytes(to: buffer.mutableBytes.assumingMemoryBound(to: UInt8.self), from: 0..<data.count)
         }
 
         var bytesSent = 0
-        let resultsAvailable = DispatchSemaphore(value: 1)
+        let resultsAvailable = DispatchSemaphore(value: 0)
         try! controlEndpoint.enqueueIORequest(with: request, completionTimeout: TimeInterval(usbWriteTimeout)) {
             status, bytesTransferred in
-            bytesSent = bytesTransferred
+            bytesSent = bytesTransferred  // FIXME: getting 2 instead of 0? Something awry with request?
             resultsAvailable.signal()
         }
         resultsAvailable.wait()
 
-//        fatalError("control transfer not implemented!")
         return Int32(bytesSent)
         #endif
     }
@@ -285,9 +284,28 @@ public class USBDevice {
 
     public func bulkTransferOut(msg: Data) {
         #if true
-        buffer.setData(msg)
-        let writeRequest = Data() // FIXME: build request
-        try! bulkEndpoint.enqueueIORequest(with: (writeRequest as! NSMutableData), completionTimeout: TimeInterval(usbWriteTimeout), completionHandler: nil)
+        let payload = NSMutableData(data: msg)
+        // Making stabs at the semantics surrounding buffer and with: parameter.
+        // Since I don't see a way of communicating the length of the message
+        // if using the buffer, will assume that for outgoing we want to send
+        // the msg as the with: parameter of the IO Request.
+
+        var bytesSent = 0
+        let resultsAvailable = DispatchSemaphore(value: 0)
+        try! bulkEndpoint.enqueueIORequest(with: payload, completionTimeout: TimeInterval(usbWriteTimeout)) {
+            status, bytesTransferred in
+            logger.trace("bulkTransferOut completed with status \(status); \(bytesTransferred) of \(msg.count) bytes transferred")
+            bytesSent = bytesTransferred
+            resultsAvailable.signal()
+        }
+        resultsAvailable.wait()
+
+//        guard result == 0 else {
+//            fatalError("bulkTransfer returned \(result)")
+//        }
+        guard msg.count == bytesSent else {
+            fatalError("not all bytes sent")
+        }
 
         // defeat control flow analysis to preserve syntax checking of code after this
         if Date.init().timeIntervalSince1970 > 5 {
@@ -314,8 +332,18 @@ public class USBDevice {
 
     public func bulkTransferIn() -> Data {
         #if true
-        let readRequest = Data() // FIXME: build request
-        try! bulkEndpoint.enqueueIORequest(with: (readRequest as! NSMutableData), completionTimeout: TimeInterval(usbWriteTimeout), completionHandler: nil)
+        var bytesReceived = 0
+        let resultsAvailable = DispatchSemaphore(value: 0)
+        try! bulkEndpoint.enqueueIORequest(with: nil, completionTimeout: TimeInterval(usbWriteTimeout)) {
+            status, bytesTransferred in
+            guard status == 0 else {
+                fatalError("bulkTransfer read returned \(status)")
+            }
+            bytesReceived = bytesTransferred
+            resultsAvailable.signal()
+        }
+        resultsAvailable.wait()
+
 
         // defeat control flow analysis to preserve syntax checking of code after this
         if Date.init().timeIntervalSince1970 > 5 {
@@ -323,7 +351,7 @@ public class USBDevice {
         }
         // end control flow defeat/runtime warning
 
-        return Data(buffer)
+        return Data(buffer.prefix(bytesReceived))
         #else
         let bufSize = 1024 // FIXME: tell the device about this!
         var readBuffer = Array(repeating: UInt8(0), count: bufSize)
