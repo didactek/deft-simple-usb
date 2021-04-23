@@ -19,26 +19,41 @@ import IOUSBHost
 var logger = Logger(label: "com.didactek.ftdi-synchronous-serial.main")
 // FIXME: how to default configuration to debug?
 
-#if false
 struct EndpointAddress {
+    #if false  // libusb implementation
     typealias RawValue = UInt8
+    #else  // IOUSBHost implementation
+    typealias RawValue = Int
+    enum EndpointDirection: RawValue {
+        // Table 9-13. Standard Endpoint Descriptor
+        case input = 0b1000_0000
+        case output = 0
+    }
+    #endif
     let rawValue: RawValue
 
-    init(rawValue: UInt8) {
+    init(rawValue: RawValue) {
         self.rawValue = rawValue
     }
 
     // USB 2.0: 9.6.6 Endpoint:
     // Bit 7 is direction IN/OUT
+    #if false   // libusb implementation
     let directionMask = Self.RawValue(LIBUSB_ENDPOINT_IN.rawValue | LIBUSB_ENDPOINT_OUT.rawValue)
+    #else  // IOUSBHub implementation
+    let directionMask = Self.RawValue(EndpointDirection.input.rawValue | EndpointDirection.output.rawValue)
+    #endif
 
     var isWritable: Bool {
         get {
+            #if false   // libusb implementation
             return rawValue & directionMask == LIBUSB_ENDPOINT_OUT.rawValue
+            #else  // IOUSBHub implementation
+            return rawValue & directionMask == EndpointDirection.output.rawValue
+            #endif
         }
     }
 }
-#endif
 
 public class USBDevice {
 
@@ -115,6 +130,7 @@ public class USBDevice {
         var endpointPipes = [IOUSBHostPipe]()
         var endpointIterator = IOUSBGetNextEndpointDescriptor(interface.configurationDescriptor, interface.interfaceDescriptor, nil)
         while let endpointFound = endpointIterator {
+            logger.trace("Making pipe for endpoint: \(endpointFound.pointee)")
             endpointPipes.append(try interface.copyPipe(withAddress: Int(endpointFound.pointee.bEndpointAddress)))
             endpointFound.withMemoryRebound(to: IOUSBDescriptorHeader.self, capacity: 1) {
                 endpointIterator = IOUSBGetNextEndpointDescriptor(interface.configurationDescriptor, interface.interfaceDescriptor, $0)
