@@ -8,9 +8,9 @@
 //
 
 import Foundation
-#if false
+#if false  // libusb implementation
 import CLibUSB
-#else
+#else  // IOUSBHost implementation
 import IOUSBHost
 #endif
 
@@ -26,7 +26,7 @@ public class USBBus {
         case deviceCriteriaNotUnique
     }
 
-    #if false
+    #if false  // libusb implementation
     static func checkCall(_ rawResult: Int32, onError: (String) throws -> Never) {
         let result = libusb_error(rawValue: rawResult)
         guard result == LIBUSB_SUCCESS else {
@@ -43,16 +43,16 @@ public class USBBus {
         // FIXME: how to do this better, and where?
         logger.logLevel = .trace
 
-        #if false
+        #if false  // libusb implementation
         Self.checkCall(libusb_init(&ctx)) { msg in // deinit: libusb_exit
             fatalError("libusb_init failed: \(msg)")
         }
-        #else
+        #else  // IOUSBHost implementation
         #endif
     }
 
     deinit {
-        #if false
+        #if false  // libusb implementation
         libusb_exit(ctx)
         #endif
     }
@@ -63,12 +63,12 @@ public class USBBus {
     /// - throws: if device is not found or criteria are not unique
     public func findDevice(idVendor: Int?, idProduct: Int?) throws -> USBDevice {
         // scan for devices:
-        #if true  // IOUSBHost implementation (vs. libusb)
+        #if true  // IOUSBHost implementation
         // create a matching dictionary:
         // FIXME: surely there's a less-verbose idiom for these conditionals?
 
         #if false  // documentation suggests there is a helper here, but I can't find it:
-        let deviceSearchPattern = IOUSBHostDevice.createMatchingDictionary(
+        let searchRequest = IOUSBHostDevice.createMatchingDictionary(
             vendorID: idVendor,
             productID: idProduct,
             bcdDevice: nil,
@@ -77,7 +77,6 @@ public class USBBus {
             deviceProtocol: nil,
             speed: nil,
             productIDArray: nil)
-        let service = IOServiceGetMatchingService(kIOMasterPortDefault, deviceSearchPattern)
         #else
         let deviceSearchPattern: [IOUSBHostMatchingPropertyKey : Int] = [
             .vendorID : idVendor!,
@@ -151,7 +150,7 @@ public class USBBus {
 
     }
 
-    #if false
+    #if false  // libusb implementation
     /// Read the device descriptor.
     ///
     /// - Parameter device: Handle from libusb_get_device_list.

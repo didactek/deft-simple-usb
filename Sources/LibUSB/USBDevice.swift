@@ -9,9 +9,9 @@
 
 import Foundation
 import Logging
-#if false
+#if false  // libusb implementation
 import CLibUSB
-#else
+#else  // IOUSBHost implementation
 import IOUSBHost
 #endif
 
@@ -48,7 +48,7 @@ public class USBDevice {
         case claimInterface(String)
     }
 
-    #if false
+    #if false  // libusb implementation
     let subsystem: USBBus // keep the subsytem alive
     let device: OpaquePointer
     var handle: OpaquePointer? = nil
@@ -56,14 +56,14 @@ public class USBDevice {
 
     let writeEndpoint: EndpointAddress
     let readEndpoint: EndpointAddress
-    #else
+    #else  // IOUSBHost implementation
     let buffer: NSMutableData
     let controlEndpoint: IOUSBHostPipe
     let bulkEndpoint: IOUSBHostPipe
     #endif
     var usbWriteTimeout: UInt32 = 5000  // FIXME
 
-    #if true
+    #if true  // IOUSBHost implementation
     init(device: IOUSBHostDevice) throws {
         // like the libusb version:
         // get configuration
@@ -73,7 +73,7 @@ public class USBDevice {
         print(configuration)
         // check bNumInterfaces
         let interfacesCount = configuration.bNumInterfaces
-        logger.debug("there are \(interfacesCount) interfaces on this device")
+        logger.debug("Device supports \(interfacesCount) interfaces")
 
 
         let interfaceDescriptionPtr = IOUSBGetNextInterfaceDescriptor(device.configurationDescriptor, nil /*zeroeth previous; first is next*/)
@@ -131,8 +131,7 @@ public class USBDevice {
         bulkEndpoint = endpointPipes[1]
         controlEndpoint = endpointPipes[0]
     }
-    // copy pipe from USB subsystem (USBBus is basically a IOUSBHostInterface
-    #else
+    #else  // libusb implementation
     init(subsystem: USBBus, device: OpaquePointer) throws {
         self.subsystem = subsystem
         self.device = device
@@ -180,7 +179,7 @@ public class USBDevice {
     #endif
 
     deinit {
-        #if false
+        #if false // libusb implementation
         libusb_release_interface(handle, interfaceNumber)
         libusb_close(handle)
         libusb_unref_device(device)
@@ -238,12 +237,12 @@ public class USBDevice {
         // Table 9.4 Standard Device Requests
         // ControlRequestType.vendor semantics may vary.
         // FIXME: could we make .standard calls more typesafe?
-        #if false
+        #if false  // libusb implementation
         var dataCopy = Array(data ?? Data())
         return dataCopy.withUnsafeMutableBufferPointer {
             libusb_control_transfer(handle, requestType, bRequest, wValue, wIndex, $0.baseAddress, wLength, timeout)
         }
-        #else
+        #else  // IOUSBHost implementation
         // The Objective-C API provides a "sendControlRequest" which is not avaliable
         // in the Swift API. The following is my attempt to discover an alternative
         // pattern.
@@ -283,7 +282,7 @@ public class USBDevice {
 
 
     public func bulkTransferOut(msg: Data) {
-        #if true
+        #if true  // IOUSBHost implementation
         let payload = NSMutableData(data: msg)
         // Making stabs at the semantics surrounding buffer and with: parameter.
         // Since I don't see a way of communicating the length of the message
@@ -312,7 +311,7 @@ public class USBDevice {
             fatalError("bulkTransferOut implementation is untested")
         }
         // end control flow defeat/runtime warning
-        #else
+        #else  // libusb implementation
         let outgoingCount = Int32(msg.count)
 
         var bytesTransferred = Int32(0)
@@ -331,7 +330,7 @@ public class USBDevice {
     }
 
     public func bulkTransferIn() -> Data {
-        #if true
+        #if true  // IOUSBHost implementation
         var bytesReceived = 0
         let resultsAvailable = DispatchSemaphore(value: 0)
         try! bulkEndpoint.enqueueIORequest(with: nil, completionTimeout: TimeInterval(usbWriteTimeout)) {
@@ -352,7 +351,7 @@ public class USBDevice {
         // end control flow defeat/runtime warning
 
         return Data(buffer.prefix(bytesReceived))
-        #else
+        #else  // libusb implementation
         let bufSize = 1024 // FIXME: tell the device about this!
         var readBuffer = Array(repeating: UInt8(0), count: bufSize)
         var readCount = Int32(0)
