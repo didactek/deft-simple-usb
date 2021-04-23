@@ -66,11 +66,12 @@ public class USBDevice {
     #if true  // IOUSBHost implementation
     init(device: IOUSBHostDevice) throws {
         // like the libusb version:
+        logger.trace("Configuring USBDevice with descriptor \(device.deviceDescriptor!.pointee)")
+
         // get configuration
-        print(device.deviceDescriptor?.pointee)
         // assume configuration zero
         let configuration = try! device.configurationDescriptor(with: 0).pointee
-        print(configuration)
+
         // check bNumInterfaces
         let interfacesCount = configuration.bNumInterfaces
         logger.debug("Device supports \(interfacesCount) interfaces")
@@ -81,6 +82,7 @@ public class USBDevice {
         guard let interfaceDescription = interfaceDescriptionPtr else {
             throw USBError.claimInterface("IOUSBGetNextInterfaceDescriptor")
         }
+        logger.trace("Interface description: \(interfaceDescription.pointee)")
 
         // Create lookup for the service
         // FIXME: I'm sure the framework provides a better helper for constructing this;
