@@ -132,6 +132,16 @@ public class USBDevice {
         // Bulk (with read and write streams)?
         bulkEndpoint = endpointPipes[1]
         controlEndpoint = endpointPipes[0]
+
+        // FIXME: remove nextInterface checking. This is just to clarify that we can only obtain
+        // one interface using IOUSBGetNextInterfaceDescriptor.
+        let nextInterface = interfaceDescription.withMemoryRebound(to: IOUSBDescriptorHeader.self, capacity: 1) {
+            IOUSBGetNextInterfaceDescriptor(device.configurationDescriptor, $0)
+        }
+        guard nextInterface == nil || interfacesCount > 1 else {
+            logger.trace("Next interface is: \(nextInterface!)")
+            fatalError("More interfaces available than promised")
+        }
     }
     #else  // libusb implementation
     init(subsystem: USBBus, device: OpaquePointer) throws {
