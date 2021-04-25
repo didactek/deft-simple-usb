@@ -87,6 +87,7 @@ public class USBDevice {
         // get configuration
         // assume configuration zero (and throws with configuration 1 or -1)
         let configuration = try! device.configurationDescriptor(with: 0).pointee
+        logger.trace("Configuration with:0 is \(configuration)")
 
         // check bNumInterfaces
         let interfacesCount = configuration.bNumInterfaces
@@ -102,6 +103,8 @@ public class USBDevice {
         // Create lookup for the service
         // FIXME: I'm sure the framework provides a better helper for constructing this;
         // I just can't seem to find it....
+        // FIXME: hardcoded kIOUSBFindInterfaceDontCare is 65535; doesn't help
+        // when used for class/subclass/protocol.
         let interfaceSearchInts: [IOUSBHostMatchingPropertyKey : Int] = [
             .vendorID: Int(device.deviceDescriptor!.pointee.idVendor),
             .productID: Int(device.deviceDescriptor!.pointee.idProduct),
@@ -118,6 +121,8 @@ public class USBDevice {
         searchRequest.addEntries(from: interfaceSearchStrings)
         searchRequest.addEntries(from: ["IOProviderClass" : "IOUSBHostInterface"])
 
+
+        logger.trace("interface search request is \(searchRequest)")
         let service = IOServiceGetMatchingService(kIOMasterPortDefault, searchRequest)
 
         let interface = try! IOUSBHostInterface.init(__ioService: service, options: [], queue: nil, interestHandler: nil)
@@ -149,15 +154,17 @@ public class USBDevice {
         }
         logger.debug("created \(endpointPipes.count) pipes")
 
-        // FIXME: only getting two pipes.
         guard endpointPipes.count == 2 else {
-            throw USBError.claimInterface("expected pipes for control and bulk")
+            throw USBError.claimInterface("expected to find bulk for read and write")
         }
 
         writeEndpoint = endpointPipes.first(where: { EndpointAddress(rawValue: $0.endpointAddress).isWritable })!
         readEndpoint = endpointPipes.first(where: { !EndpointAddress(rawValue: $0.endpointAddress).isWritable })!
 
         // FIXME: trying to find the control endpoint. Satisfying the compiler in the interim:
+        // interface.copyPipe(withAddress: 0) fails
+        // interface.copyPipe(withAddress: -1) fails
+        // interface.copyPipe(withAddress: 65535) fails
         controlEndpoint = writeEndpoint
 
         // FIXME: remove nextInterface checking. This is just to clarify that we can only obtain
