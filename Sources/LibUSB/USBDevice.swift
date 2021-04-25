@@ -73,7 +73,7 @@ public class USBDevice {
     let readEndpoint: EndpointAddress
     #else  // IOUSBHost implementation
     let buffer: NSMutableData
-//    let controlEndpoint: IOUSBHostPipe
+    let device: IOUSBHostDevice
     let writeEndpoint: IOUSBHostPipe
     let readEndpoint: IOUSBHostPipe
     #endif
@@ -83,6 +83,8 @@ public class USBDevice {
     init(device: IOUSBHostDevice) throws {
         // like the libusb version:
         logger.trace("Configuring USBDevice with descriptor \(device.deviceDescriptor!.pointee)")
+
+        self.device = device
 
         // get configuration
         // assume configuration zero (and throws with configuration 1 or -1)
@@ -330,7 +332,6 @@ public class USBDevice {
         return Int32(bytesSent)
         #else
         let swiftRequest = IOUSBDeviceRequest(bmRequestType: requestType, bRequest: bRequest, wValue: wValue, wIndex: wIndex, wLength: wLength)
-        let dummyData = NSMutableData()
         let timeout = TimeInterval(2)
         var transferred: Int = 0
         // FIXME: There is control request code described in the IOSUSBHostPipe headers,
@@ -341,11 +342,10 @@ public class USBDevice {
         //
         // I am still worried that this working on an endpoint that is not Endpoint Zero.
         // (And sending control requests on the write endpoint times out.)
-        let success = try! writeEndpoint.__sendControlRequest(swiftRequest, //IOUSBDeviceRequest)request
-                                                            data: dummyData, //data:(nullable NSMutableData*)data
-                                                            bytesTransferred: &transferred, //bytesTransferred:(nullable NSUInteger*)bytesTransferred
-                                                            completionTimeout: timeout)//, //completionTimeout:(NSTimeInterval)completionTimeout
-//                                                            error: &errorCode) //error:(NSError* _Nullable*)error NS_REFINED_FOR_SWIFT;
+        try! device.__send(swiftRequest, //IOUSBDeviceRequest)request
+                           data: nil, //data:(nullable NSMutableData*)data
+                           bytesTransferred: &transferred, //bytesTransferred:(nullable NSUInteger*)bytesTransferred
+                           completionTimeout: timeout) //completionTimeout:(NSTimeInterval)completionTimeout
         return Int32(transferred)
         #endif
         #endif
