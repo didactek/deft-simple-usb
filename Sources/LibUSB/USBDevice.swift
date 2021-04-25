@@ -73,7 +73,7 @@ public class USBDevice {
     let readEndpoint: EndpointAddress
     #else  // IOUSBHost implementation
     let buffer: NSMutableData
-    let controlEndpoint: IOUSBHostPipe
+//    let controlEndpoint: IOUSBHostPipe
     let writeEndpoint: IOUSBHostPipe
     let readEndpoint: IOUSBHostPipe
     #endif
@@ -165,7 +165,7 @@ public class USBDevice {
         // interface.copyPipe(withAddress: 0) fails
         // interface.copyPipe(withAddress: -1) fails
         // interface.copyPipe(withAddress: 65535) fails
-        controlEndpoint = writeEndpoint
+        //controlEndpoint = writeEndpoint
 
         // FIXME: remove nextInterface checking. This is just to clarify that we can only obtain
         // one interface using IOUSBGetNextInterfaceDescriptor.
@@ -317,6 +317,7 @@ public class USBDevice {
 
         var bytesSent = 0
         let resultsAvailable = DispatchSemaphore(value: 0)
+        #if false
         try! controlEndpoint.enqueueIORequest(with: request, completionTimeout: TimeInterval(usbWriteTimeout)) {
             status, bytesTransferred in
             guard bytesTransferred >= 8 else {
@@ -326,8 +327,27 @@ public class USBDevice {
             resultsAvailable.signal()
         }
         resultsAvailable.wait()
-
         return Int32(bytesSent)
+        #else
+        let swiftRequest = IOUSBDeviceRequest(bmRequestType: requestType, bRequest: bRequest, wValue: wValue, wIndex: wIndex, wLength: wLength)
+        let dummyData = NSMutableData()
+        let timeout = TimeInterval(2)
+        var transferred: Int = 0
+        // FIXME: There is control request code described in the IOSUSBHostPipe headers,
+        // but they are marked NS_REFINED_FOR_SWIFT, suggesting there is an extension
+        // somewhere that provides a prettier API. However, I can't seem to find that
+        // extension, so am going to try the hidden-but-available function (hidden with
+        // a pair of leading underscores.
+        //
+        // I am still worried that this working on an endpoint that is not Endpoint Zero.
+        // (And sending control requests on the write endpoint times out.)
+        let success = try! writeEndpoint.__sendControlRequest(swiftRequest, //IOUSBDeviceRequest)request
+                                                            data: dummyData, //data:(nullable NSMutableData*)data
+                                                            bytesTransferred: &transferred, //bytesTransferred:(nullable NSUInteger*)bytesTransferred
+                                                            completionTimeout: timeout)//, //completionTimeout:(NSTimeInterval)completionTimeout
+//                                                            error: &errorCode) //error:(NSError* _Nullable*)error NS_REFINED_FOR_SWIFT;
+        return Int32(transferred)
+        #endif
         #endif
     }
 
