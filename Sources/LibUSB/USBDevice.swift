@@ -277,6 +277,7 @@ public class USBDevice {
     }
 
     /// Synchronously send USB control transfer.
+    /// - parameter timeout: timeout in milliseconds
     /// - returns: number of bytes transferred (if success)
     func controlTransfer(requestType: BMRequestType, bRequest: UInt8, wValue: UInt16, wIndex: UInt16, data: Data?, wLength: UInt16, timeout: UInt32) -> Int32 {
         // USB 2.0 9.3.4: wIndex
@@ -293,62 +294,30 @@ public class USBDevice {
             libusb_control_transfer(handle, requestType, bRequest, wValue, wIndex, $0.baseAddress, wLength, timeout)
         }
         #else  // IOUSBHost implementation
-        // The Objective-C API provides a "sendControlRequest" which is not avaliable
-        // in the Swift API. The following is my attempt to discover an alternative
-        // pattern.
+        // FIXME: Using an API that is not documented in the 11.1 SDK, but instead
+        // is discovered by looking at the Objective-C headers and either making guesses
+        // about the NS_REFINED_FOR_SWIFT extensions or using those methods directly.
+        // Hopefully the next SDK will be more clear about how bridging should work.
 
-        // IOUSBHostDeviceRequestType is the only method documented in the "Send Control Requests"
-        // section, but it is a helper that constructs the request type (BMRequestType in the linux
-        // implementation here).
+        let payload: NSMutableData? = data == nil ? nil : NSMutableData(data: data!)
 
-        // Since in USB, the control endpoint is endpoint 0, maybe I do all the
-        // work of formatting and writing on that endpoint?
-
-        // Format described in [USB 2.0](https://www.usb.org/document-library/usb-20-specification) 9.3 USB Device Requests
-        // Protocol is little-endian [USB 2.0](https://www.usb.org/document-library/usb-20-specification) 8.1 Byte/Bit Ordering
-        let wordsSegment = [wValue, wIndex, wLength].map { word in
-            withUnsafeBytes(of: word.littleEndian) { Data($0) }
-        }.joined()
-        let request = NSMutableData(data: Data([
-            requestType,
-            bRequest]) + wordsSegment)
-
-        if let data = data {
-            data.copyBytes(to: buffer.mutableBytes.assumingMemoryBound(to: UInt8.self), from: 0..<data.count)
-        }
-
-        var bytesSent = 0
-        let resultsAvailable = DispatchSemaphore(value: 0)
-        #if false
-        try! controlEndpoint.enqueueIORequest(with: request, completionTimeout: TimeInterval(usbWriteTimeout)) {
-            status, bytesTransferred in
-            guard bytesTransferred >= 8 else {
-                fatalError("Failed to send at least the 8 bytes of the control transfer packet")
-            }
-            bytesSent = bytesTransferred - 8
-            resultsAvailable.signal()
-        }
-        resultsAvailable.wait()
-        return Int32(bytesSent)
-        #else
-        let swiftRequest = IOUSBDeviceRequest(bmRequestType: requestType, bRequest: bRequest, wValue: wValue, wIndex: wIndex, wLength: wLength)
-        let timeout = TimeInterval(2)
+        let request = IOUSBDeviceRequest(bmRequestType: requestType, bRequest: bRequest, wValue: wValue, wIndex: wIndex, wLength: wLength)
+        let timeout = TimeInterval(Double(timeout)/1_000.0)
         var transferred: Int = 0
+
         // FIXME: There is control request code described in the IOSUSBHostPipe headers,
         // but they are marked NS_REFINED_FOR_SWIFT, suggesting there is an extension
         // somewhere that provides a prettier API. However, I can't seem to find that
         // extension, so am going to try the hidden-but-available function (hidden with
         // a pair of leading underscores.
         //
-        // I am still worried that this working on an endpoint that is not Endpoint Zero.
-        // (And sending control requests on the write endpoint times out.)
-        try! device.__send(swiftRequest, //IOUSBDeviceRequest)request
-                           data: nil, //data:(nullable NSMutableData*)data
+        // Hoping that send on the *device* uses the proper endpoint zero.
+        try! device.__send(request, //IOUSBDeviceRequest)request
+                           data: payload, //data:(nullable NSMutableData*)data
                            bytesTransferred: &transferred, //bytesTransferred:(nullable NSUInteger*)bytesTransferred
                            completionTimeout: timeout) //completionTimeout:(NSTimeInterval)completionTimeout
         return Int32(transferred)
-        #endif
-        #endif
+        #endif  // IOUSBHost implementation
     }
 
 
@@ -410,9 +379,9 @@ public class USBDevice {
 
 
         // defeat control flow analysis to preserve syntax checking of code after this
-        if Date.init().timeIntervalSince1970 > 5 {
-            fatalError("bulkTransferIn implementation is untested")
-        }
+//        if Date.init().timeIntervalSince1970 > 5 {
+//            fatalError("bulkTransferIn implementation is untested")
+//        }
         // end control flow defeat/runtime warning
 
         return Data(buffer.prefix(bytesReceived))

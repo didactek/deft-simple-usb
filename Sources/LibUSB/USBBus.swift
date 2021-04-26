@@ -65,8 +65,6 @@ public class USBBus {
         // scan for devices:
         #if true  // IOUSBHost implementation
         // create a matching dictionary:
-        // FIXME: surely there's a less-verbose idiom for these conditionals?
-
         #if false  // documentation suggests there is a helper here, but I can't find it:
         let searchRequest = IOUSBHostDevice.createMatchingDictionary(
             vendorID: idVendor,
@@ -85,6 +83,7 @@ public class USBBus {
         let deviceDomain = [ "IOProviderClass": "IOUSBHostDevice" ]
         let searchRequest = (deviceSearchPattern as NSDictionary).mutableCopy() as! NSMutableDictionary
         searchRequest.addEntries(from: deviceDomain)
+        #endif
 
         #if true  // FIXME: use iterator approach; throw if not unique
         let service = IOServiceGetMatchingService(kIOMasterPortDefault, searchRequest)
@@ -95,7 +94,6 @@ public class USBBus {
         var existing: io_iterator_t = 0
         let _ = IOServiceGetMatchingServices(kIOMasterPortDefault, cfDeviceSearchPattern, &existing)
         let service = existing
-        #endif
         #endif
 
         let device = try IOUSBHostDevice.init(__ioService: service, options: [/*.deviceCapture*/], queue: nil, interestHandler: nil)
@@ -138,6 +136,7 @@ public class USBBus {
     /// Information obtainable from the device descriptor without opening a connection to the device.
     ///
     /// See [USB 2.0](https://www.usb.org/document-library/usb-20-specification) 9.6.1, Device
+    #if false  // libusb implementation
     struct DeviceDescription {
         /// libusb handle to the device
         let device: OpaquePointer
@@ -145,10 +144,11 @@ public class USBBus {
         let idVendor: Int
         /// USB idProduct of the device
         let idProduct: Int
-        /// number of configua
+        /// number of configurations
         let bNumConfigurations: Int
 
     }
+    #endif
 
     #if false  // libusb implementation
     /// Read the device descriptor.
