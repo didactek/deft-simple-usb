@@ -129,23 +129,10 @@ public class USBDevice {
 
         let interface = try! IOUSBHostInterface.init(__ioService: service, options: [], queue: nil, interestHandler: nil)
 
-        // FIXME: 1024 pulled from air
-        buffer = try! interface.ioData(withCapacity: 1024)
-
-        // get write and read endpoints
-        // FIXME: who knows if these are the right way around!
         var endpointPipes = [IOUSBHostPipe]()
         var endpointIterator = IOUSBGetNextEndpointDescriptor(interface.configurationDescriptor, interface.interfaceDescriptor, nil)
         logger.trace("Interface configurationDescriptor is \(interface.configurationDescriptor.pointee)")
-        // configurationDescriptor at this point is:
-//        IOUSBConfigurationDescriptor(bLength: 9,
-//                                     bDescriptorType: 2,
-//                                     wTotalLength: 32,
-//                                     bNumInterfaces: 1,
-//                                     bConfigurationValue: 1,
-//                                     iConfiguration: 0,
-//                                     bmAttributes: 128,  // things to do with power
-//                                     MaxPower: 50)
+
         logger.trace("Interface interfaceDescriptor is \(interface.interfaceDescriptor.pointee)")
         while let endpointFound = endpointIterator {
             logger.trace("Making pipe for endpoint: \(endpointFound.pointee)")
@@ -162,12 +149,7 @@ public class USBDevice {
 
         writeEndpoint = endpointPipes.first(where: { EndpointAddress(rawValue: $0.endpointAddress).isWritable })!
         readEndpoint = endpointPipes.first(where: { !EndpointAddress(rawValue: $0.endpointAddress).isWritable })!
-
-        // FIXME: trying to find the control endpoint. Satisfying the compiler in the interim:
-        // interface.copyPipe(withAddress: 0) fails
-        // interface.copyPipe(withAddress: -1) fails
-        // interface.copyPipe(withAddress: 65535) fails
-        //controlEndpoint = writeEndpoint
+        buffer = try! interface.ioData(withCapacity: Int(writeEndpoint.descriptors.pointee.descriptor.wMaxPacketSize))
 
         // FIXME: remove nextInterface checking. This is just to clarify that we can only obtain
         // one interface using IOUSBGetNextInterfaceDescriptor.
@@ -367,7 +349,13 @@ public class USBDevice {
         #if true  // IOUSBHost implementation
         var bytesReceived = 0
         let resultsAvailable = DispatchSemaphore(value: 0)
-        try! readEndpoint.enqueueIORequest(with: nil, completionTimeout: TimeInterval(usbWriteTimeout)) {
+
+        // provide space in a local buffer to hold read results
+        // Note that 'capacity' and 'length' are different concepts, and it is
+        // the latter that matters when passing the buffer. Length initializes
+        // bytes to zero.
+        let localBuffer = NSMutableData(length: Int(readEndpoint.descriptors.pointee.descriptor.wMaxPacketSize))
+        try! readEndpoint.enqueueIORequest(with: localBuffer, completionTimeout: TimeInterval(usbWriteTimeout)) {
             status, bytesTransferred in
             guard status == 0 else {
                 fatalError("bulkTransfer read status: \(status)")
@@ -376,15 +364,8 @@ public class USBDevice {
             resultsAvailable.signal()
         }
         resultsAvailable.wait()
+        return Data(localBuffer!.prefix(bytesReceived))
 
-
-        // defeat control flow analysis to preserve syntax checking of code after this
-//        if Date.init().timeIntervalSince1970 > 5 {
-//            fatalError("bulkTransferIn implementation is untested")
-//        }
-        // end control flow defeat/runtime warning
-
-        return Data(buffer.prefix(bytesReceived))
         #else  // libusb implementation
         let bufSize = 1024 // FIXME: tell the device about this!
         var readBuffer = Array(repeating: UInt8(0), count: bufSize)
