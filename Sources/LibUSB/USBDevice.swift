@@ -16,6 +16,25 @@ import IOUSBHost
 var logger = Logger(label: "com.didactek.ftdi-synchronous-serial.main")
 // FIXME: how to default configuration to debug?
 
+// USB spec 2.0, sec 9.3: USB Device Requests
+// USB spec 2.0, sec 9.3.1: bmRequestType
+public typealias BMRequestType = UInt8
+public enum ControlDirection: BMRequestType {
+    case hostToDevice = 0b0000_0000
+    case deviceToHost = 0b1000_0000
+}
+public enum ControlRequestType: BMRequestType {
+    case standard = 0b00_00000
+    case `class`  = 0b01_00000
+    case vendor   = 0b10_00000
+    case reserved = 0b11_00000
+}
+public enum ControlRequestRecipient: BMRequestType {
+    case device = 0
+    case interface = 1
+    case endpoint = 2
+    case other = 3
+}
 
 public protocol USBDevice {
     func controlTransferOut(bRequest: UInt8, value: UInt16, wIndex: UInt16)
@@ -25,11 +44,18 @@ public protocol USBDevice {
     func bulkTransferIn() -> Data
 
     var timeout: TimeInterval {get set}
+
+    // basically IOUSBHostPipe.IOUSBHostDeviceRequestType
+    func controlRequest(type: ControlRequestType, direction: ControlDirection, recipient: ControlRequestRecipient) -> BMRequestType
 }
 
 extension USBDevice {
     public func controlTransferOut(bRequest: UInt8, value: UInt16, wIndex: UInt16) {
         controlTransferOut(bRequest: bRequest, value: value, wIndex: wIndex, data: nil)
+    }
+
+    public func controlRequest(type: ControlRequestType, direction: ControlDirection, recipient: ControlRequestRecipient) -> BMRequestType {
+        return type.rawValue | direction.rawValue | recipient.rawValue
     }
 }
 
@@ -129,37 +155,6 @@ public class LUUSBDevice: USBDevice {
         libusb_release_interface(handle, interfaceNumber)
         libusb_close(handle)
         libusb_unref_device(device)
-    }
-
-
-    // FIXME: common; factor
-    // USB spec 2.0, sec 9.3: USB Device Requests
-    // USB spec 2.0, sec 9.3.1: bmRequestType
-    typealias BMRequestType = UInt8
-    // FIXME: common; factor
-    enum ControlDirection: BMRequestType {
-        case hostToDevice = 0b0000_0000
-        case deviceToHost = 0b1000_0000
-    }
-    // FIXME: common; factor
-    enum ControlRequestType: BMRequestType {
-        case standard = 0b00_00000
-        case `class`  = 0b01_00000
-        case vendor   = 0b10_00000
-        case reserved = 0b11_00000
-    }
-    // FIXME: common; factor
-    enum ControlRequestRecipient: BMRequestType {
-        case device = 0
-        case interface = 1
-        case endpoint = 2
-        case other = 3
-    }
-
-    // FIXME: common; factor
-    // basically IOUSBHostPipe.IOUSBHostDeviceRequestType
-    func controlRequest(type: ControlRequestType, direction: ControlDirection, recipient: ControlRequestRecipient) -> BMRequestType {
-        return type.rawValue | direction.rawValue | recipient.rawValue
     }
 
     // FIXME: common; factor
@@ -322,33 +317,6 @@ public class FWUSBDevice: USBDevice {
             logger.trace("Next interface is: \(nextInterface!)")
             fatalError("More interfaces available than promised")
         }
-    }
-
-
-
-    // USB spec 2.0, sec 9.3: USB Device Requests
-    // USB spec 2.0, sec 9.3.1: bmRequestType
-    typealias BMRequestType = UInt8
-    enum ControlDirection: BMRequestType {
-        case hostToDevice = 0b0000_0000
-        case deviceToHost = 0b1000_0000
-    }
-    enum ControlRequestType: BMRequestType {
-        case standard = 0b00_00000
-        case `class`  = 0b01_00000
-        case vendor   = 0b10_00000
-        case reserved = 0b11_00000
-    }
-    enum ControlRequestRecipient: BMRequestType {
-        case device = 0
-        case interface = 1
-        case endpoint = 2
-        case other = 3
-    }
-
-    // basically IOUSBHostPipe.IOUSBHostDeviceRequestType
-    func controlRequest(type: ControlRequestType, direction: ControlDirection, recipient: ControlRequestRecipient) -> BMRequestType {
-        return type.rawValue | direction.rawValue | recipient.rawValue
     }
 
     public func controlTransferOut(bRequest: UInt8, value: UInt16, wIndex: UInt16, data: Data? = nil) {
