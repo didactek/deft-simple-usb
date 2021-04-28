@@ -1,6 +1,6 @@
 //
 //  USBBus.swift
-//
+//  deft-simple-usb
 //
 //  Created by Kit Transue on 2020-08-11.
 //  Copyright © 2020 Kit Transue
@@ -8,18 +8,11 @@
 //
 
 import Foundation
+import SimpleUSB
 import CLibUSB
 import IOUSBHost
 
-public protocol USBBus {
-    associatedtype DeviceType: USBDevice
 
-    /// - parameter idVendor: filter found devices by vendor, if not-nil.
-    /// - parameter idProduct: filter found devices by product, if not-nil. Requires idVendor.
-    /// - returns: the one device that matches the search criteria
-    /// - throws: if device is not found or criteria are not unique
-    func findDevice(idVendor: Int?, idProduct: Int?) throws -> DeviceType
-}
 
 /// Bridge to the C library [libusb](https://libusb.info) functions imported by CLibUSB.
 /// Configure the subsystem and find devices attached to the bus.

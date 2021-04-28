@@ -25,17 +25,6 @@ enum USBError: Error {
     case claimInterface(String)
 }
 
-public protocol USBDevice {
-    func controlTransferOut(bRequest: UInt8, value: UInt16, wIndex: UInt16, data: Data?)
-
-    func bulkTransferOut(msg: Data)
-    func bulkTransferIn() -> Data
-
-    var timeout: TimeInterval {get set}
-
-    // basically IOUSBHostPipe.IOUSBHostDeviceRequestType
-    func controlRequest(type: ControlRequestType, direction: ControlDirection, recipient: ControlRequestRecipient) -> BMRequestType
-}
 
 extension USBDevice {
     public func controlRequest(type: ControlRequestType, direction: ControlDirection, recipient: ControlRequestRecipient) -> BMRequestType {
