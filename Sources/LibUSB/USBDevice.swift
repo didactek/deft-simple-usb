@@ -23,6 +23,8 @@ public protocol USBDevice {
 
     func bulkTransferOut(msg: Data)
     func bulkTransferIn() -> Data
+
+    var timeout: TimeInterval {get set}
 }
 
 extension USBDevice {
@@ -64,7 +66,11 @@ public class LUUSBDevice: USBDevice {
         case getConfiguration(String)
         case claimInterface(String)
     }
-    var usbWriteTimeout: UInt32 = 5000  // FIXME
+    var libusbTimeout = UInt32(5000)
+    public var timeout: TimeInterval {
+        get { TimeInterval(Double(libusbTimeout) / 1000)  }
+        set { libusbTimeout = UInt32(newValue * 1000) }
+    }
 
     let subsystem: LUUSBBus // keep the subsytem alive
     let device: OpaquePointer
@@ -165,7 +171,7 @@ public class LUUSBDevice: USBDevice {
                                      bRequest: bRequest,
                                      wValue: value, wIndex: wIndex,
                                      data: data,
-                                     wLength: UInt16(requestSize), timeout: usbWriteTimeout)
+                                     wLength: UInt16(requestSize))
 
         guard result == requestSize else {
             // FIXME: should probably throw rather than abort, and maybe not all calls need to be this strict
@@ -174,9 +180,8 @@ public class LUUSBDevice: USBDevice {
     }
 
     /// Synchronously send USB control transfer.
-    /// - parameter timeout: timeout in milliseconds
     /// - returns: number of bytes transferred (if success)
-    func controlTransfer(requestType: BMRequestType, bRequest: UInt8, wValue: UInt16, wIndex: UInt16, data: Data?, wLength: UInt16, timeout: UInt32) -> Int32 {
+    func controlTransfer(requestType: BMRequestType, bRequest: UInt8, wValue: UInt16, wIndex: UInt16, data: Data?, wLength: UInt16) -> Int32 {
         // USB 2.0 9.3.4: wIndex
         // some interpretations (high bits 0):
         //   as endpoint (direction:1/0:3/endpoint:4)
@@ -187,7 +192,7 @@ public class LUUSBDevice: USBDevice {
         // FIXME: could we make .standard calls more typesafe?
         var dataCopy = Array(data ?? Data())
         return dataCopy.withUnsafeMutableBufferPointer {
-            libusb_control_transfer(handle, requestType, bRequest, wValue, wIndex, $0.baseAddress, wLength, timeout)
+            libusb_control_transfer(handle, requestType, bRequest, wValue, wIndex, $0.baseAddress, wLength, libusbTimeout)
         }
     }
 
@@ -199,7 +204,7 @@ public class LUUSBDevice: USBDevice {
         var msgScratchCopy = msg
 
         let result = msgScratchCopy.withUnsafeMutableBytes { unsafe in
-            libusb_bulk_transfer(handle, writeEndpoint.rawValue, unsafe.bindMemory(to: UInt8.self).baseAddress, outgoingCount, &bytesTransferred, usbWriteTimeout)
+            libusb_bulk_transfer(handle, writeEndpoint.rawValue, unsafe.bindMemory(to: UInt8.self).baseAddress, outgoingCount, &bytesTransferred, libusbTimeout)
         }
         guard result == 0 else {
             fatalError("bulkTransfer returned \(result)")
@@ -214,7 +219,7 @@ public class LUUSBDevice: USBDevice {
         let bufSize = 1024 // FIXME: tell the device about this!
         var readBuffer = Array(repeating: UInt8(0), count: bufSize)
         var readCount = Int32(0)
-        let result = libusb_bulk_transfer(handle, readEndpoint.rawValue, &readBuffer, Int32(bufSize), &readCount, usbWriteTimeout)
+        let result = libusb_bulk_transfer(handle, readEndpoint.rawValue, &readBuffer, Int32(bufSize), &readCount, libusbTimeout)
         guard result == 0 else {
             let errorMessage = String(cString: libusb_error_name(result)) // must not free message
             fatalError("bulkTransfer read returned \(result): \(errorMessage)")
@@ -224,6 +229,8 @@ public class LUUSBDevice: USBDevice {
 }
 
 public class FWUSBDevice: USBDevice {
+    public var timeout = TimeInterval(5)
+
     typealias EndpointAddress = PlatformEndpointAddress<Int>
 
     enum USBError: Error {
@@ -235,8 +242,6 @@ public class FWUSBDevice: USBDevice {
     let device: IOUSBHostDevice
     let writeEndpoint: IOUSBHostPipe
     let readEndpoint: IOUSBHostPipe
-
-    var usbWriteTimeout: UInt32 = 5000  // FIXME
 
     init(device: IOUSBHostDevice) throws {
         // like the libusb version:
@@ -354,7 +359,7 @@ public class FWUSBDevice: USBDevice {
                                      bRequest: bRequest,
                                      wValue: value, wIndex: wIndex,
                                      data: data,
-                                     wLength: UInt16(requestSize), timeout: usbWriteTimeout)
+                                     wLength: UInt16(requestSize))
 
         guard result == requestSize else {
             // FIXME: should probably throw rather than abort, and maybe not all calls need to be this strict
@@ -364,8 +369,7 @@ public class FWUSBDevice: USBDevice {
 
     /// Synchronously send USB control transfer.
     /// - parameter timeout: timeout in milliseconds
-    /// - returns: number of bytes transferred (if success)
-    func controlTransfer(requestType: BMRequestType, bRequest: UInt8, wValue: UInt16, wIndex: UInt16, data: Data?, wLength: UInt16, timeout: UInt32) -> Int32 {
+    func controlTransfer(requestType: BMRequestType, bRequest: UInt8, wValue: UInt16, wIndex: UInt16, data: Data?, wLength: UInt16) -> Int32 {
         // USB 2.0 9.3.4: wIndex
         // some interpretations (high bits 0):
         //   as endpoint (direction:1/0:3/endpoint:4)
@@ -387,7 +391,6 @@ public class FWUSBDevice: USBDevice {
         }
 
         let request = IOUSBDeviceRequest(bmRequestType: requestType, bRequest: bRequest, wValue: wValue, wIndex: wIndex, wLength: wLength)
-        let timeout = TimeInterval(Double(timeout)/1_000.0)
         var transferred: Int = 0
 
         // FIXME: There is control request code described in the IOSUSBHostPipe headers,
@@ -408,7 +411,7 @@ public class FWUSBDevice: USBDevice {
 
         var bytesSent = 0
         let resultsAvailable = DispatchSemaphore(value: 0)
-        try! writeEndpoint.enqueueIORequest(with: payload, completionTimeout: TimeInterval(usbWriteTimeout)) {
+        try! writeEndpoint.enqueueIORequest(with: payload, completionTimeout: timeout) {
             status, bytesTransferred in
             logger.trace("bulkTransferOut completed with status \(status); \(bytesTransferred) of \(msg.count) bytes transferred")
             guard status == 0 else {
@@ -433,7 +436,7 @@ public class FWUSBDevice: USBDevice {
         var bytesReceived = 0
 
         let resultsAvailable = DispatchSemaphore(value: 0)
-        try! readEndpoint.enqueueIORequest(with: localBuffer, completionTimeout: TimeInterval(usbWriteTimeout)) {
+        try! readEndpoint.enqueueIORequest(with: localBuffer, completionTimeout: timeout) {
             status, bytesTransferred in
             guard status == 0 else {
                 fatalError("bulkTransfer read status: \(status)")
