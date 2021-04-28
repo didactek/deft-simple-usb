@@ -59,6 +59,30 @@ extension USBDevice {
     }
 }
 
+protocol DeviceCommon: USBDevice {
+    /// Synchronously send USB control transfer.
+    /// - returns: number of bytes transferred (if success)
+    func controlTransfer(requestType: BMRequestType, bRequest: UInt8, wValue: UInt16, wIndex: UInt16, data: Data?, wLength: UInt16) -> Int32
+}
+
+extension DeviceCommon {
+    public func controlTransferOut(bRequest: UInt8, value: UInt16, wIndex: UInt16, data: Data? = nil) {
+        let requestType = controlRequest(type: .vendor, direction: .hostToDevice, recipient: .device)
+        let requestSize = data?.count ?? 0
+
+        let result = controlTransfer(requestType: requestType,
+                                     bRequest: bRequest,
+                                     wValue: value, wIndex: wIndex,
+                                     data: data,
+                                     wLength: UInt16(requestSize))
+
+        guard result == requestSize else {
+            // FIXME: should probably throw rather than abort, and maybe not all calls need to be this strict
+            fatalError("controlTransferOut failed: transferred \(result) bytes of \(requestSize)")
+        }
+    }
+}
+
 struct PlatformEndpointAddress<RawValue: FixedWidthInteger> {
     enum EndpointDirection: RawValue {
         // Table 9-13. Standard Endpoint Descriptor
@@ -84,7 +108,7 @@ struct PlatformEndpointAddress<RawValue: FixedWidthInteger> {
 }
 
 
-public class LUUSBDevice: USBDevice {
+public class LUUSBDevice: USBDevice, DeviceCommon {
     typealias EndpointAddress = PlatformEndpointAddress<UInt8>
     // FIXME: common; factor.
     enum USBError: Error {
@@ -157,23 +181,6 @@ public class LUUSBDevice: USBDevice {
         libusb_unref_device(device)
     }
 
-    // FIXME: common; factor
-    public func controlTransferOut(bRequest: UInt8, value: UInt16, wIndex: UInt16, data: Data? = nil) {
-        let requestType = controlRequest(type: .vendor, direction: .hostToDevice, recipient: .device)
-        let requestSize = data?.count ?? 0
-
-        let result = controlTransfer(requestType: requestType,
-                                     bRequest: bRequest,
-                                     wValue: value, wIndex: wIndex,
-                                     data: data,
-                                     wLength: UInt16(requestSize))
-
-        guard result == requestSize else {
-            // FIXME: should probably throw rather than abort, and maybe not all calls need to be this strict
-            fatalError("controlTransferOut failed: transferred \(result) bytes of \(requestSize)")
-        }
-    }
-
     /// Synchronously send USB control transfer.
     /// - returns: number of bytes transferred (if success)
     func controlTransfer(requestType: BMRequestType, bRequest: UInt8, wValue: UInt16, wIndex: UInt16, data: Data?, wLength: UInt16) -> Int32 {
@@ -223,7 +230,7 @@ public class LUUSBDevice: USBDevice {
     }
 }
 
-public class FWUSBDevice: USBDevice {
+public class FWUSBDevice: USBDevice, DeviceCommon {
     public var timeout = TimeInterval(5)
 
     typealias EndpointAddress = PlatformEndpointAddress<Int>
@@ -319,21 +326,6 @@ public class FWUSBDevice: USBDevice {
         }
     }
 
-    public func controlTransferOut(bRequest: UInt8, value: UInt16, wIndex: UInt16, data: Data? = nil) {
-        let requestType = controlRequest(type: .vendor, direction: .hostToDevice, recipient: .device)
-        let requestSize = data?.count ?? 0
-
-        let result = controlTransfer(requestType: requestType,
-                                     bRequest: bRequest,
-                                     wValue: value, wIndex: wIndex,
-                                     data: data,
-                                     wLength: UInt16(requestSize))
-
-        guard result == requestSize else {
-            // FIXME: should probably throw rather than abort, and maybe not all calls need to be this strict
-            fatalError("controlTransferOut failed: transferred \(result) bytes of \(requestSize)")
-        }
-    }
 
     /// Synchronously send USB control transfer.
     /// - parameter timeout: timeout in milliseconds
