@@ -232,7 +232,6 @@ public class FWUSBDevice: USBDevice {
         case claimInterface(String)
     }
 
-    let buffer: NSMutableData
     let device: IOUSBHostDevice
     let writeEndpoint: IOUSBHostPipe
     let readEndpoint: IOUSBHostPipe
@@ -308,7 +307,6 @@ public class FWUSBDevice: USBDevice {
 
         writeEndpoint = endpointPipes.first(where: { EndpointAddress(rawValue: $0.endpointAddress).isWritable })!
         readEndpoint = endpointPipes.first(where: { !EndpointAddress(rawValue: $0.endpointAddress).isWritable })!
-        buffer = try! interface.ioData(withCapacity: Int(writeEndpoint.descriptors.pointee.descriptor.wMaxPacketSize))
 
         // FIXME: remove nextInterface checking. This is just to clarify that we can only obtain
         // one interface using IOUSBGetNextInterfaceDescriptor.
