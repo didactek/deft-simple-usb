@@ -11,10 +11,19 @@ import Foundation
 import CLibUSB
 import IOUSBHost
 
+protocol BusSubsystem {
+    associatedtype DeviceType
+
+    /// - parameter idVendor: filter found devices by vendor, if not-nil.
+    /// - parameter idProduct: filter found devices by product, if not-nil. Requires idVendor.
+    /// - returns: the one device that matches the search criteria
+    /// - throws: if device is not found or criteria are not unique
+    func findDevice(idVendor: Int?, idProduct: Int?) throws -> DeviceType
+}
 
 /// Bridge to the C library [libusb](https://libusb.info) functions imported by CLibUSB.
 /// Configure the subsystem and find devices attached to the bus.
-public class LUUSBBus {
+public class LUUSBBus: BusSubsystem {
     // FIXME: common: factor
     enum UsbError: Error {
         case noDeviceMatched
@@ -121,7 +130,7 @@ public class LUUSBBus {
 
 /// On macOS, the bus services are always available, so an "object" of this type is just a pass-through
 /// to IOUSBHost services.
-public class USBBus {
+public class USBBus: BusSubsystem {
     enum UsbError: Error {
         case noDeviceMatched
         case deviceCriteriaNotUnique
