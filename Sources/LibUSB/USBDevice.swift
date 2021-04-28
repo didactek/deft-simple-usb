@@ -31,28 +31,33 @@ extension USBDevice {
     }
 }
 
-
-public class LUUSBDevice: USBDevice {
-    struct EndpointAddress {
-        typealias RawValue = UInt8
-
-        let rawValue: RawValue
-
-        init(rawValue: RawValue) {
-            self.rawValue = rawValue
-        }
-
-        // USB 2.0: 9.6.6 Endpoint:
-        // Bit 7 is direction IN/OUT
-        let directionMask = Self.RawValue(LIBUSB_ENDPOINT_IN.rawValue | LIBUSB_ENDPOINT_OUT.rawValue)
-
-        var isWritable: Bool {
-            get {
-                return rawValue & directionMask == LIBUSB_ENDPOINT_OUT.rawValue
-            }
-        }
+struct PlatformEndpointAddress<RawValue: FixedWidthInteger> {
+    enum EndpointDirection: RawValue {
+        // Table 9-13. Standard Endpoint Descriptor
+        case input = 0b1000_0000
+        case output = 0
     }
 
+    let rawValue: RawValue
+
+    init(rawValue: RawValue) {
+        self.rawValue = rawValue
+    }
+
+    // USB 2.0: 9.6.6 Endpoint:
+    // Bit 7 is direction IN/OUT
+    let directionMask = RawValue(EndpointDirection.input.rawValue | EndpointDirection.output.rawValue)
+
+    var isWritable: Bool {
+        get {
+            return rawValue & directionMask == EndpointDirection.output.rawValue
+        }
+    }
+}
+
+
+public class LUUSBDevice: USBDevice {
+    typealias EndpointAddress = PlatformEndpointAddress<UInt8>
     // FIXME: common; factor.
     enum USBError: Error {
         case bindingDeviceHandle(String)
@@ -219,30 +224,7 @@ public class LUUSBDevice: USBDevice {
 }
 
 public class FWUSBDevice: USBDevice {
-    struct EndpointAddress {
-        typealias RawValue = Int
-        enum EndpointDirection: RawValue {
-            // Table 9-13. Standard Endpoint Descriptor
-            case input = 0b1000_0000
-            case output = 0
-        }
-
-        let rawValue: RawValue
-
-        init(rawValue: RawValue) {
-            self.rawValue = rawValue
-        }
-
-        // USB 2.0: 9.6.6 Endpoint:
-        // Bit 7 is direction IN/OUT
-        let directionMask = Self.RawValue(EndpointDirection.input.rawValue | EndpointDirection.output.rawValue)
-
-        var isWritable: Bool {
-            get {
-                return rawValue & directionMask == EndpointDirection.output.rawValue
-            }
-        }
-    }
+    typealias EndpointAddress = PlatformEndpointAddress<Int>
 
     enum USBError: Error {
         case bindingDeviceHandle(String)
