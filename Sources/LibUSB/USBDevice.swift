@@ -9,53 +9,225 @@
 
 import Foundation
 import Logging
-#if false  // libusb implementation
 import CLibUSB
-#else  // IOUSBHost implementation
 import IOUSBHost
-#endif
 
 
 var logger = Logger(label: "com.didactek.ftdi-synchronous-serial.main")
 // FIXME: how to default configuration to debug?
 
-struct EndpointAddress {
-    #if false  // libusb implementation
-    typealias RawValue = UInt8
-    #else  // IOUSBHost implementation
-    typealias RawValue = Int
-    enum EndpointDirection: RawValue {
-        // Table 9-13. Standard Endpoint Descriptor
-        case input = 0b1000_0000
-        case output = 0
-    }
-    #endif
-    let rawValue: RawValue
 
-    init(rawValue: RawValue) {
-        self.rawValue = rawValue
-    }
+public class LUUSBDevice {
+    struct EndpointAddress {
+        typealias RawValue = UInt8
 
-    // USB 2.0: 9.6.6 Endpoint:
-    // Bit 7 is direction IN/OUT
-    #if false   // libusb implementation
-    let directionMask = Self.RawValue(LIBUSB_ENDPOINT_IN.rawValue | LIBUSB_ENDPOINT_OUT.rawValue)
-    #else  // IOUSBHub implementation
-    let directionMask = Self.RawValue(EndpointDirection.input.rawValue | EndpointDirection.output.rawValue)
-    #endif
+        let rawValue: RawValue
 
-    var isWritable: Bool {
-        get {
-            #if false   // libusb implementation
-            return rawValue & directionMask == LIBUSB_ENDPOINT_OUT.rawValue
-            #else  // IOUSBHub implementation
-            return rawValue & directionMask == EndpointDirection.output.rawValue
-            #endif
+        init(rawValue: RawValue) {
+            self.rawValue = rawValue
         }
+
+        // USB 2.0: 9.6.6 Endpoint:
+        // Bit 7 is direction IN/OUT
+        let directionMask = Self.RawValue(LIBUSB_ENDPOINT_IN.rawValue | LIBUSB_ENDPOINT_OUT.rawValue)
+
+        var isWritable: Bool {
+            get {
+                return rawValue & directionMask == LIBUSB_ENDPOINT_OUT.rawValue
+            }
+        }
+    }
+
+    // FIXME: common; factor.
+    enum USBError: Error {
+        case bindingDeviceHandle(String)
+        case getConfiguration(String)
+        case claimInterface(String)
+    }
+    var usbWriteTimeout: UInt32 = 5000  // FIXME
+
+    let subsystem: LUUSBBus // keep the subsytem alive
+    let device: OpaquePointer
+    var handle: OpaquePointer? = nil
+    let interfaceNumber: Int32 = 0
+
+    let writeEndpoint: EndpointAddress
+    let readEndpoint: EndpointAddress
+
+    init(subsystem: LUUSBBus, device: OpaquePointer) throws {
+        self.subsystem = subsystem
+        self.device = device
+
+        LUUSBBus.checkCall(libusb_open(device, &handle)) { msg in  // deinit: libusb_close
+            throw USBError.bindingDeviceHandle(msg)
+        }
+
+        var configurationPtr: UnsafeMutablePointer<libusb_config_descriptor>? = nil
+        defer {
+            libusb_free_config_descriptor(configurationPtr)
+        }
+        LUUSBBus.checkCall(libusb_get_active_config_descriptor(device, &configurationPtr)) { msg in
+            throw USBError.getConfiguration(msg)
+        }
+        guard let configuration = configurationPtr else {
+            throw USBError.getConfiguration("null configuration")
+        }
+        let configurationIndex = 0
+        let interfacesCount = configuration[configurationIndex].bNumInterfaces
+        logger.debug("there are \(interfacesCount) interfaces on this device")
+
+        // On linux, the 'ftdi_sio' driver will likely be loaded for the FTDI device.
+        // Since we aren't using the FTDI in UART mode, ask libusb to unload this driver
+        // while we are using the device.
+        // This seesm to be OK to do on macOS
+        libusb_set_auto_detach_kernel_driver(handle, 1 /* non-zero is 'yes: enable' */)
+
+        LUUSBBus.checkCall(libusb_claim_interface(handle, interfaceNumber)) { msg in  // deinit: libusb_release_interface
+            // FIXME: "Resource Busy" on Linux may be the ftdi_sio driver being associated with the device.
+            // Proper setup should fix this. Proper setup being...????
+            throw USBError.claimInterface(msg)
+        }
+        let interface = configuration[configurationIndex].interface[Int(interfaceNumber)]
+
+        let endpointCount = interface.altsetting[0].bNumEndpoints
+        logger.debug("Device/Interface has \(endpointCount) endpoints")
+        let endpoints = (0 ..< endpointCount).map { interface.altsetting[0].endpoint[Int($0)] }
+        let addresses = endpoints.map { EndpointAddress(rawValue: $0.bEndpointAddress) }
+        writeEndpoint = addresses.first { $0.isWritable }!
+        readEndpoint = addresses.first { !$0.isWritable }!
+
+        libusb_ref_device(device)  // now we won't throw
+    }
+
+    deinit {
+        libusb_release_interface(handle, interfaceNumber)
+        libusb_close(handle)
+        libusb_unref_device(device)
+    }
+
+
+    // FIXME: common; factor
+    // USB spec 2.0, sec 9.3: USB Device Requests
+    // USB spec 2.0, sec 9.3.1: bmRequestType
+    typealias BMRequestType = UInt8
+    // FIXME: common; factor
+    enum ControlDirection: BMRequestType {
+        case hostToDevice = 0b0000_0000
+        case deviceToHost = 0b1000_0000
+    }
+    // FIXME: common; factor
+    enum ControlRequestType: BMRequestType {
+        case standard = 0b00_00000
+        case `class`  = 0b01_00000
+        case vendor   = 0b10_00000
+        case reserved = 0b11_00000
+    }
+    // FIXME: common; factor
+    enum ControlRequestRecipient: BMRequestType {
+        case device = 0
+        case interface = 1
+        case endpoint = 2
+        case other = 3
+    }
+
+    // FIXME: common; factor
+    // basically IOUSBHostPipe.IOUSBHostDeviceRequestType
+    func controlRequest(type: ControlRequestType, direction: ControlDirection, recipient: ControlRequestRecipient) -> BMRequestType {
+        return type.rawValue | direction.rawValue | recipient.rawValue
+    }
+
+    // FIXME: common; factor
+    public func controlTransferOut(bRequest: UInt8, value: UInt16, wIndex: UInt16, data: Data? = nil) {
+        let requestType = controlRequest(type: .vendor, direction: .hostToDevice, recipient: .device)
+        let requestSize = data?.count ?? 0
+
+        let result = controlTransfer(requestType: requestType,
+                                     bRequest: bRequest,
+                                     wValue: value, wIndex: wIndex,
+                                     data: data,
+                                     wLength: UInt16(requestSize), timeout: usbWriteTimeout)
+
+        guard result == requestSize else {
+            // FIXME: should probably throw rather than abort, and maybe not all calls need to be this strict
+            fatalError("controlTransferOut failed: transferred \(result) bytes of \(requestSize)")
+        }
+    }
+
+    /// Synchronously send USB control transfer.
+    /// - parameter timeout: timeout in milliseconds
+    /// - returns: number of bytes transferred (if success)
+    func controlTransfer(requestType: BMRequestType, bRequest: UInt8, wValue: UInt16, wIndex: UInt16, data: Data?, wLength: UInt16, timeout: UInt32) -> Int32 {
+        // USB 2.0 9.3.4: wIndex
+        // some interpretations (high bits 0):
+        //   as endpoint (direction:1/0:3/endpoint:4)
+        //   as interface (interface number)
+        // semantics for ControlRequestType.standard requests are defined in
+        // Table 9.4 Standard Device Requests
+        // ControlRequestType.vendor semantics may vary.
+        // FIXME: could we make .standard calls more typesafe?
+        var dataCopy = Array(data ?? Data())
+        return dataCopy.withUnsafeMutableBufferPointer {
+            libusb_control_transfer(handle, requestType, bRequest, wValue, wIndex, $0.baseAddress, wLength, timeout)
+        }
+    }
+
+
+    public func bulkTransferOut(msg: Data) {
+        let outgoingCount = Int32(msg.count)
+
+        var bytesTransferred = Int32(0)
+        var msgScratchCopy = msg
+
+        let result = msgScratchCopy.withUnsafeMutableBytes { unsafe in
+            libusb_bulk_transfer(handle, writeEndpoint.rawValue, unsafe.bindMemory(to: UInt8.self).baseAddress, outgoingCount, &bytesTransferred, usbWriteTimeout)
+        }
+        guard result == 0 else {
+            fatalError("bulkTransfer returned \(result)")
+        }
+        guard outgoingCount == bytesTransferred else {
+            fatalError("not all bytes sent")
+        }
+    }
+
+    public func bulkTransferIn() -> Data {
+
+        let bufSize = 1024 // FIXME: tell the device about this!
+        var readBuffer = Array(repeating: UInt8(0), count: bufSize)
+        var readCount = Int32(0)
+        let result = libusb_bulk_transfer(handle, readEndpoint.rawValue, &readBuffer, Int32(bufSize), &readCount, usbWriteTimeout)
+        guard result == 0 else {
+            let errorMessage = String(cString: libusb_error_name(result)) // must not free message
+            fatalError("bulkTransfer read returned \(result): \(errorMessage)")
+        }
+        return Data(readBuffer.prefix(Int(readCount))) // FIXME: Xcode 11.6 / Swift 5.2.4: explicit constructor is needed to avoid crash in Data subrange if we just return the prefix!! This seems like a bug????
     }
 }
 
 public class USBDevice {
+    struct EndpointAddress {
+        typealias RawValue = Int
+        enum EndpointDirection: RawValue {
+            // Table 9-13. Standard Endpoint Descriptor
+            case input = 0b1000_0000
+            case output = 0
+        }
+
+        let rawValue: RawValue
+
+        init(rawValue: RawValue) {
+            self.rawValue = rawValue
+        }
+
+        // USB 2.0: 9.6.6 Endpoint:
+        // Bit 7 is direction IN/OUT
+        let directionMask = Self.RawValue(EndpointDirection.input.rawValue | EndpointDirection.output.rawValue)
+
+        var isWritable: Bool {
+            get {
+                return rawValue & directionMask == EndpointDirection.output.rawValue
+            }
+        }
+    }
 
     enum USBError: Error {
         case bindingDeviceHandle(String)
@@ -63,23 +235,13 @@ public class USBDevice {
         case claimInterface(String)
     }
 
-    #if false  // libusb implementation
-    let subsystem: USBBus // keep the subsytem alive
-    let device: OpaquePointer
-    var handle: OpaquePointer? = nil
-    let interfaceNumber: Int32 = 0
-
-    let writeEndpoint: EndpointAddress
-    let readEndpoint: EndpointAddress
-    #else  // IOUSBHost implementation
     let buffer: NSMutableData
     let device: IOUSBHostDevice
     let writeEndpoint: IOUSBHostPipe
     let readEndpoint: IOUSBHostPipe
-    #endif
+
     var usbWriteTimeout: UInt32 = 5000  // FIXME
 
-    #if true  // IOUSBHost implementation
     init(device: IOUSBHostDevice) throws {
         // like the libusb version:
         logger.trace("Configuring USBDevice with descriptor \(device.deviceDescriptor!.pointee)")
@@ -161,60 +323,7 @@ public class USBDevice {
             fatalError("More interfaces available than promised")
         }
     }
-    #else  // libusb implementation
-    init(subsystem: USBBus, device: OpaquePointer) throws {
-        self.subsystem = subsystem
-        self.device = device
 
-        USBBus.checkCall(libusb_open(device, &handle)) { msg in  // deinit: libusb_close
-            throw USBError.bindingDeviceHandle(msg)
-        }
-
-        var configurationPtr: UnsafeMutablePointer<libusb_config_descriptor>? = nil
-        defer {
-            libusb_free_config_descriptor(configurationPtr)
-        }
-        USBBus.checkCall(libusb_get_active_config_descriptor(device, &configurationPtr)) { msg in
-            throw USBError.getConfiguration(msg)
-        }
-        guard let configuration = configurationPtr else {
-            throw USBError.getConfiguration("null configuration")
-        }
-        let configurationIndex = 0
-        let interfacesCount = configuration[configurationIndex].bNumInterfaces
-        logger.debug("there are \(interfacesCount) interfaces on this device")
-
-        // On linux, the 'ftdi_sio' driver will likely be loaded for the FTDI device.
-        // Since we aren't using the FTDI in UART mode, ask libusb to unload this driver
-        // while we are using the device.
-        // This seesm to be OK to do on macOS
-        libusb_set_auto_detach_kernel_driver(handle, 1 /* non-zero is 'yes: enable' */)
-
-        USBBus.checkCall(libusb_claim_interface(handle, interfaceNumber)) { msg in  // deinit: libusb_release_interface
-            // FIXME: "Resource Busy" on Linux may be the ftdi_sio driver being associated with the device.
-            // Proper setup should fix this. Proper setup being...????
-            throw USBError.claimInterface(msg)
-        }
-        let interface = configuration[configurationIndex].interface[Int(interfaceNumber)]
-
-        let endpointCount = interface.altsetting[0].bNumEndpoints
-        logger.debug("Device/Interface has \(endpointCount) endpoints")
-        let endpoints = (0 ..< endpointCount).map { interface.altsetting[0].endpoint[Int($0)] }
-        let addresses = endpoints.map { EndpointAddress(rawValue: $0.bEndpointAddress) }
-        writeEndpoint = addresses.first { $0.isWritable }!
-        readEndpoint = addresses.first { !$0.isWritable }!
-
-        libusb_ref_device(device)  // now we won't throw
-    }
-    #endif
-
-    deinit {
-        #if false // libusb implementation
-        libusb_release_interface(handle, interfaceNumber)
-        libusb_close(handle)
-        libusb_unref_device(device)
-        #endif
-    }
 
 
     // USB spec 2.0, sec 9.3: USB Device Requests
@@ -270,12 +379,6 @@ public class USBDevice {
         // Table 9.4 Standard Device Requests
         // ControlRequestType.vendor semantics may vary.
         // FIXME: could we make .standard calls more typesafe?
-        #if false  // libusb implementation
-        var dataCopy = Array(data ?? Data())
-        return dataCopy.withUnsafeMutableBufferPointer {
-            libusb_control_transfer(handle, requestType, bRequest, wValue, wIndex, $0.baseAddress, wLength, timeout)
-        }
-        #else  // IOUSBHost implementation
         // FIXME: Using an API that is not documented in the 11.1 SDK, but instead
         // is discovered by looking at the Objective-C headers and either making guesses
         // about the NS_REFINED_FOR_SWIFT extensions or using those methods directly.
@@ -299,12 +402,10 @@ public class USBDevice {
                            bytesTransferred: &transferred, //bytesTransferred:(nullable NSUInteger*)bytesTransferred
                            completionTimeout: timeout) //completionTimeout:(NSTimeInterval)completionTimeout
         return Int32(transferred)
-        #endif  // IOUSBHost implementation
     }
 
 
     public func bulkTransferOut(msg: Data) {
-        #if true  // IOUSBHost implementation
         let payload = NSMutableData(data: msg)
         // Making stabs at the semantics surrounding buffer and with: parameter.
         // Since I don't see a way of communicating the length of the message
@@ -327,26 +428,9 @@ public class USBDevice {
         guard msg.count == bytesSent else {
             fatalError("not all msg bytes sent")
         }
-        #else  // libusb implementation
-        let outgoingCount = Int32(msg.count)
-
-        var bytesTransferred = Int32(0)
-        var msgScratchCopy = msg
-
-        let result = msgScratchCopy.withUnsafeMutableBytes { unsafe in
-            libusb_bulk_transfer(handle, writeEndpoint.rawValue, unsafe.bindMemory(to: UInt8.self).baseAddress, outgoingCount, &bytesTransferred, usbWriteTimeout)
-        }
-        guard result == 0 else {
-            fatalError("bulkTransfer returned \(result)")
-        }
-        guard outgoingCount == bytesTransferred else {
-            fatalError("not all bytes sent")
-        }
-        #endif
-    }
+     }
 
     public func bulkTransferIn() -> Data {
-        #if true  // IOUSBHost implementation
         var bytesReceived = 0
         let resultsAvailable = DispatchSemaphore(value: 0)
 
@@ -365,17 +449,5 @@ public class USBDevice {
         }
         resultsAvailable.wait()
         return Data(localBuffer!.prefix(bytesReceived))
-
-        #else  // libusb implementation
-        let bufSize = 1024 // FIXME: tell the device about this!
-        var readBuffer = Array(repeating: UInt8(0), count: bufSize)
-        var readCount = Int32(0)
-        let result = libusb_bulk_transfer(handle, readEndpoint.rawValue, &readBuffer, Int32(bufSize), &readCount, usbWriteTimeout)
-        guard result == 0 else {
-            let errorMessage = String(cString: libusb_error_name(result)) // must not free message
-            fatalError("bulkTransfer read returned \(result): \(errorMessage)")
-        }
-        return Data(readBuffer.prefix(Int(readCount))) // FIXME: Xcode 11.6 / Swift 5.2.4: explicit constructor is needed to avoid crash in Data subrange if we just return the prefix!! This seems like a bug????
-        #endif
     }
 }
