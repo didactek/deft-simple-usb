@@ -17,7 +17,7 @@ var logger = Logger(label: "com.didactek.ftdi-synchronous-serial.main")
 // FIXME: how to default configuration to debug?
 
 
-protocol DeviceInterface {
+public protocol USBDevice {
     func controlTransferOut(bRequest: UInt8, value: UInt16, wIndex: UInt16)
     func controlTransferOut(bRequest: UInt8, value: UInt16, wIndex: UInt16, data: Data?)
 
@@ -25,14 +25,14 @@ protocol DeviceInterface {
     func bulkTransferIn() -> Data
 }
 
-extension DeviceInterface {
-    func controlTransferOut(bRequest: UInt8, value: UInt16, wIndex: UInt16) {
+extension USBDevice {
+    public func controlTransferOut(bRequest: UInt8, value: UInt16, wIndex: UInt16) {
         controlTransferOut(bRequest: bRequest, value: value, wIndex: wIndex, data: nil)
     }
 }
 
 
-public class LUUSBDevice: DeviceInterface {
+public class LUUSBDevice: USBDevice {
     struct EndpointAddress {
         typealias RawValue = UInt8
 
@@ -218,7 +218,7 @@ public class LUUSBDevice: DeviceInterface {
     }
 }
 
-public class USBDevice: DeviceInterface {
+public class FWUSBDevice: USBDevice {
     struct EndpointAddress {
         typealias RawValue = Int
         enum EndpointDirection: RawValue {
