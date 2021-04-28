@@ -399,7 +399,12 @@ public class FWUSBDevice: USBDevice {
         // about the NS_REFINED_FOR_SWIFT extensions or using those methods directly.
         // Hopefully the next SDK will be more clear about how bridging should work.
 
-        let payload: NSMutableData? = data == nil ? nil : NSMutableData(data: data!)
+        let payload: NSMutableData?
+        if let data = data {
+            payload = NSMutableData(data: data)
+        } else {
+            payload = nil
+        }
 
         let request = IOUSBDeviceRequest(bmRequestType: requestType, bRequest: bRequest, wValue: wValue, wIndex: wIndex, wLength: wLength)
         let timeout = TimeInterval(Double(timeout)/1_000.0)
@@ -408,10 +413,8 @@ public class FWUSBDevice: USBDevice {
         // FIXME: There is control request code described in the IOSUSBHostPipe headers,
         // but they are marked NS_REFINED_FOR_SWIFT, suggesting there is an extension
         // somewhere that provides a prettier API. However, I can't seem to find that
-        // extension, so am going to try the hidden-but-available function (hidden with
+        // extension, so am using the hidden-but-available function (hidden with
         // a pair of leading underscores.
-        //
-        // Hoping that send on the *device* uses the proper endpoint zero.
         try! device.__send(request, //IOUSBDeviceRequest)request
                            data: payload, //data:(nullable NSMutableData*)data
                            bytesTransferred: &transferred, //bytesTransferred:(nullable NSUInteger*)bytesTransferred
@@ -422,10 +425,6 @@ public class FWUSBDevice: USBDevice {
 
     public func bulkTransferOut(msg: Data) {
         let payload = NSMutableData(data: msg)
-        // Making stabs at the semantics surrounding buffer and with: parameter.
-        // Since I don't see a way of communicating the length of the message
-        // if using the buffer, will assume that for outgoing we want to send
-        // the msg as the with: parameter of the IO Request.
 
         var bytesSent = 0
         let resultsAvailable = DispatchSemaphore(value: 0)
@@ -443,17 +442,17 @@ public class FWUSBDevice: USBDevice {
         guard msg.count == bytesSent else {
             fatalError("not all msg bytes sent")
         }
-     }
+    }
 
     public func bulkTransferIn() -> Data {
-        var bytesReceived = 0
-        let resultsAvailable = DispatchSemaphore(value: 0)
-
         // provide space in a local buffer to hold read results
         // Note that 'capacity' and 'length' are different concepts, and it is
         // the latter that matters when passing the buffer. Length initializes
         // bytes to zero.
         let localBuffer = NSMutableData(length: Int(readEndpoint.descriptors.pointee.descriptor.wMaxPacketSize))
+        var bytesReceived = 0
+
+        let resultsAvailable = DispatchSemaphore(value: 0)
         try! readEndpoint.enqueueIORequest(with: localBuffer, completionTimeout: TimeInterval(usbWriteTimeout)) {
             status, bytesTransferred in
             guard status == 0 else {
@@ -463,6 +462,7 @@ public class FWUSBDevice: USBDevice {
             resultsAvailable.signal()
         }
         resultsAvailable.wait()
+
         return Data(localBuffer!.prefix(bytesReceived))
     }
 }
