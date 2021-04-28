@@ -36,8 +36,13 @@ public enum ControlRequestRecipient: BMRequestType {
     case other = 3
 }
 
+enum USBError: Error {
+    case bindingDeviceHandle(String)
+    case getConfiguration(String)
+    case claimInterface(String)
+}
+
 public protocol USBDevice {
-    func controlTransferOut(bRequest: UInt8, value: UInt16, wIndex: UInt16)
     func controlTransferOut(bRequest: UInt8, value: UInt16, wIndex: UInt16, data: Data?)
 
     func bulkTransferOut(msg: Data)
@@ -50,10 +55,6 @@ public protocol USBDevice {
 }
 
 extension USBDevice {
-    public func controlTransferOut(bRequest: UInt8, value: UInt16, wIndex: UInt16) {
-        controlTransferOut(bRequest: bRequest, value: value, wIndex: wIndex, data: nil)
-    }
-
     public func controlRequest(type: ControlRequestType, direction: ControlDirection, recipient: ControlRequestRecipient) -> BMRequestType {
         return type.rawValue | direction.rawValue | recipient.rawValue
     }
@@ -66,7 +67,7 @@ protocol DeviceCommon: USBDevice {
 }
 
 extension DeviceCommon {
-    public func controlTransferOut(bRequest: UInt8, value: UInt16, wIndex: UInt16, data: Data? = nil) {
+    public func controlTransferOut(bRequest: UInt8, value: UInt16, wIndex: UInt16, data: Data?) {
         let requestType = controlRequest(type: .vendor, direction: .hostToDevice, recipient: .device)
         let requestSize = data?.count ?? 0
 
@@ -110,12 +111,7 @@ struct PlatformEndpointAddress<RawValue: FixedWidthInteger> {
 
 public class LUUSBDevice: USBDevice, DeviceCommon {
     typealias EndpointAddress = PlatformEndpointAddress<UInt8>
-    // FIXME: common; factor.
-    enum USBError: Error {
-        case bindingDeviceHandle(String)
-        case getConfiguration(String)
-        case claimInterface(String)
-    }
+
     var libusbTimeout = UInt32(5000)
     public var timeout: TimeInterval {
         get { TimeInterval(Double(libusbTimeout) / 1000)  }
@@ -155,12 +151,10 @@ public class LUUSBDevice: USBDevice, DeviceCommon {
         // On linux, the 'ftdi_sio' driver will likely be loaded for the FTDI device.
         // Since we aren't using the FTDI in UART mode, ask libusb to unload this driver
         // while we are using the device.
-        // This seesm to be OK to do on macOS
+        // This seems to be OK to do on macOS
         libusb_set_auto_detach_kernel_driver(handle, 1 /* non-zero is 'yes: enable' */)
 
         LUUSBBus.checkCall(libusb_claim_interface(handle, interfaceNumber)) { msg in  // deinit: libusb_release_interface
-            // FIXME: "Resource Busy" on Linux may be the ftdi_sio driver being associated with the device.
-            // Proper setup should fix this. Proper setup being...????
             throw USBError.claimInterface(msg)
         }
         let interface = configuration[configurationIndex].interface[Int(interfaceNumber)]
@@ -234,12 +228,6 @@ public class FWUSBDevice: USBDevice, DeviceCommon {
     public var timeout = TimeInterval(5)
 
     typealias EndpointAddress = PlatformEndpointAddress<Int>
-
-    enum USBError: Error {
-        case bindingDeviceHandle(String)
-        case getConfiguration(String)
-        case claimInterface(String)
-    }
 
     let device: IOUSBHostDevice
     let writeEndpoint: IOUSBHostPipe
