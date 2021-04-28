@@ -246,13 +246,10 @@ public class FWUSBDevice: USBDevice, DeviceCommon {
     let readEndpoint: IOUSBHostPipe
 
     init(device: IOUSBHostDevice) throws {
-        // like the libusb version:
         logger.trace("Configuring USBDevice with descriptor \(device.deviceDescriptor!.pointee)")
 
         self.device = device
 
-        // get configuration
-        // assume configuration zero (and throws with configuration 1 or -1)
         let configuration = try! device.configurationDescriptor(with: 0).pointee
         logger.trace("Configuration with:0 is \(configuration)")
 
@@ -270,8 +267,6 @@ public class FWUSBDevice: USBDevice, DeviceCommon {
         // Create lookup for the service
         // FIXME: I'm sure the framework provides a better helper for constructing this;
         // I just can't seem to find it....
-        // FIXME: hardcoded kIOUSBFindInterfaceDontCare is 65535; doesn't help
-        // when used for class/subclass/protocol.
         let interfaceSearchInts: [IOUSBHostMatchingPropertyKey : Int] = [
             .vendorID: Int(device.deviceDescriptor!.pointee.idVendor),
             .productID: Int(device.deviceDescriptor!.pointee.idProduct),
@@ -281,11 +276,7 @@ public class FWUSBDevice: USBDevice, DeviceCommon {
             .interfaceSubClass: Int(interfaceDescription.pointee.bInterfaceSubClass),
             .interfaceProtocol: Int(interfaceDescription.pointee.bInterfaceProtocol),
         ]
-        let interfaceSearchStrings: [IOUSBHostMatchingPropertyKey : Int] = [
-            :
-        ]
         let searchRequest = (interfaceSearchInts as NSDictionary).mutableCopy() as! NSMutableDictionary
-        searchRequest.addEntries(from: interfaceSearchStrings)
         searchRequest.addEntries(from: ["IOProviderClass" : "IOUSBHostInterface"])
 
 
@@ -314,21 +305,10 @@ public class FWUSBDevice: USBDevice, DeviceCommon {
 
         writeEndpoint = endpointPipes.first(where: { EndpointAddress(rawValue: $0.endpointAddress).isWritable })!
         readEndpoint = endpointPipes.first(where: { !EndpointAddress(rawValue: $0.endpointAddress).isWritable })!
-
-        // FIXME: remove nextInterface checking. This is just to clarify that we can only obtain
-        // one interface using IOUSBGetNextInterfaceDescriptor.
-        let nextInterface = interfaceDescription.withMemoryRebound(to: IOUSBDescriptorHeader.self, capacity: 1) {
-            IOUSBGetNextInterfaceDescriptor(device.configurationDescriptor, $0)
-        }
-        guard nextInterface == nil || interfacesCount > 1 else {
-            logger.trace("Next interface is: \(nextInterface!)")
-            fatalError("More interfaces available than promised")
-        }
     }
 
 
     /// Synchronously send USB control transfer.
-    /// - parameter timeout: timeout in milliseconds
     func controlTransfer(requestType: BMRequestType, bRequest: UInt8, wValue: UInt16, wIndex: UInt16, data: Data?, wLength: UInt16) -> Int32 {
         // USB 2.0 9.3.4: wIndex
         // some interpretations (high bits 0):
