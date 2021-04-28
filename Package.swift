@@ -11,6 +11,9 @@ let package = Package(
             name: "LibUSB",
             targets: ["LibUSB"]),
         .library(
+            name: "SimpleUSB",
+            targets: ["SimpleUSB"]),
+        .library(
             name: "CLibUSB",
             targets: ["CLibUSB"]),
     ],
@@ -23,7 +26,10 @@ let package = Package(
         // Targets can depend on other targets in this package, and on products in packages which this package depends on.
         .target(
             name: "LibUSB",
-            dependencies: ["CLibUSB", .product(name: "Logging", package: "swift-log")]),
+            dependencies: ["CLibUSB", "SimpleUSB", .product(name: "Logging", package: "swift-log")]),
+        .target(
+            name: "SimpleUSB",
+            dependencies: []),
         .systemLibrary(
             name: "CLibUSB",
             pkgConfig: "libusb-1.0",
