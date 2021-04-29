@@ -11,8 +11,6 @@ import Foundation
 import Logging
 import CLibUSB
 import SimpleUSB
-import IOUSBHost
-
 
 var logger = Logger(label: "com.didactek.deft-simple-usb.libusb")
 // FIXME: how to default configuration to debug?
@@ -57,10 +55,11 @@ public class LUUSBDevice: USBDevice, DeviceCommon {
         let interfacesCount = configuration[configurationIndex].bNumInterfaces
         logger.debug("there are \(interfacesCount) interfaces on this device")
 
-        // On linux, the 'ftdi_sio' driver will likely be loaded for the FTDI device.
-        // Since we aren't using the FTDI in UART mode, ask libusb to unload this driver
-        // while we are using the device.
-        // This seems to be OK to do on macOS
+        // The operating system may have loaded a default driver for this device
+        // (e.g. on linux, the 'ftdi_sio' driver will likely be loaded for the FTDI device
+        // to act as a UART serial adapter). Since we are rolling our own driver here,
+        // ask libusb to unload the system-loaded driver while we are using the device.
+        // It is OK to ask for detach on macOS.
         libusb_set_auto_detach_kernel_driver(handle, 1 /* non-zero is 'yes: enable' */)
 
         LUUSBBus.checkCall(libusb_claim_interface(handle, interfaceNumber)) { msg in  // deinit: libusb_release_interface
@@ -96,11 +95,8 @@ public class LUUSBDevice: USBDevice, DeviceCommon {
         // ControlRequestType.vendor semantics may vary.
         // FIXME: could we make .standard calls more typesafe?
         var dataCopy = Array(data ?? Data())
-        return dataCopy.withUnsafeMutableBufferPointer {
-            libusb_control_transfer(handle, requestType, bRequest, wValue, wIndex, $0.baseAddress, wLength, libusbTimeout)
-        }
+        return libusb_control_transfer(handle, requestType, bRequest, wValue, wIndex, &dataCopy, wLength, libusbTimeout)
     }
-
 
     public func bulkTransferOut(msg: Data) {
         let outgoingCount = Int32(msg.count)
@@ -120,7 +116,6 @@ public class LUUSBDevice: USBDevice, DeviceCommon {
     }
 
     public func bulkTransferIn() -> Data {
-
         let bufSize = 1024 // FIXME: tell the device about this!
         var readBuffer = Array(repeating: UInt8(0), count: bufSize)
         var readCount = Int32(0)

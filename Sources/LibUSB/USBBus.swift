@@ -10,9 +10,6 @@
 import Foundation
 import SimpleUSB
 import CLibUSB
-import IOUSBHost
-
-
 
 /// Bridge to the C library [libusb](https://libusb.info) functions imported by CLibUSB.
 /// Configure the subsystem and find devices attached to the bus.
