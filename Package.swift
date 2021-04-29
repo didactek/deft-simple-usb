@@ -11,6 +11,9 @@ let package = Package(
             name: "LibUSB",
             targets: ["LibUSB"]),
         .library(
+            name: "HostFWUSB",
+            targets: ["HostFWUSB"]),
+        .library(
             name: "SimpleUSB",
             targets: ["SimpleUSB"]),
         .library(
@@ -27,6 +30,9 @@ let package = Package(
         .target(
             name: "LibUSB",
             dependencies: ["CLibUSB", "SimpleUSB", .product(name: "Logging", package: "swift-log")]),
+        .target(
+            name: "HostFWUSB",
+            dependencies: ["SimpleUSB", .product(name: "Logging", package: "swift-log")]),
         .target(
             name: "SimpleUSB",
             dependencies: []),
