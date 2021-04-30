@@ -1,5 +1,9 @@
-// swift-tools-version:5.2
+// swift-tools-version:5.3
 // The swift-tools-version declares the minimum version of Swift required to build this package.
+
+// Tools version 5.3 is required for the "condition: .when(platforms:)" syntax
+// in dependencies. The library will build with older versions if the dependencies
+// are hardcoded.
 
 import PackageDescription
 
@@ -38,7 +42,10 @@ let package = Package(
             dependencies: ["SimpleUSB", .product(name: "Logging", package: "swift-log")]),
         .target(
             name: "PortableUSB",
-            dependencies: ["HostFWUSB", "LibUSB"]),
+            dependencies: [
+                .target(name: "HostFWUSB", condition: .when(platforms: [.macOS])),
+                .target(name: "LibUSB", condition: .when(platforms: [.linux])),
+            ]),
         .target(
             name: "SimpleUSB",
             dependencies: []),
