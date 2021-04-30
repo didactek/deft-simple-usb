@@ -49,7 +49,7 @@ public class LUUSBBus: USBBus {
     /// - parameter idProduct: filter found devices by product, if not-nil. Requires idVendor.
     /// - returns: the one device that matches the search criteria
     /// - throws: if device is not found or criteria are not unique
-    public func findDevice(idVendor: Int?, idProduct: Int?) throws -> LUUSBDevice {
+    public func findDevice(idVendor: Int?, idProduct: Int?) throws -> USBDevice {
         // scan for devices:
          var devicesBuffer: UnsafeMutablePointer<OpaquePointer?>? = nil
         let deviceCount = libusb_get_device_list(ctx, &devicesBuffer)

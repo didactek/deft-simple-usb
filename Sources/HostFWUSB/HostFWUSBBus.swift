@@ -32,7 +32,7 @@ public class FWUSBBus: USBBus {
     /// - parameter idProduct: filter found devices by product, if not-nil. Requires idVendor.
     /// - returns: the one device that matches the search criteria
     /// - throws: if device is not found or criteria are not unique
-    public func findDevice(idVendor: Int?, idProduct: Int?) throws -> FWUSBDevice {
+    public func findDevice(idVendor: Int?, idProduct: Int?) throws -> USBDevice {
         // scan for devices:
         // create a matching dictionary:
         #if false  // documentation suggests there is a helper here, but I can't find it:
