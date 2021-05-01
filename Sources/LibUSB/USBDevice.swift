@@ -7,17 +7,15 @@
 //  SPDX-License-Identifier: Apache-2.0
 //
 
-#if SKIPMODULE
+#if SKIPMODULE  // See Package.swift discussion
 #else
 import Foundation
-import Logging
 import CLibUSB
 import SimpleUSB
 
-var logger = Logger(label: "com.didactek.deft-simple-usb.libusb")
-// FIXME: how to default configuration to debug?
 
-
+/// Provide control and endpoint services to a USB device using the [libusb](https://libusb.info) system library.
+/// Devices are obtained from the bus .findDevice method.
 public class LUUSBDevice: USBDevice, DeviceCommon {
     typealias EndpointAddress = PlatformEndpointAddress<UInt8>
 
@@ -55,7 +53,7 @@ public class LUUSBDevice: USBDevice, DeviceCommon {
         }
         let configurationIndex = 0
         let interfacesCount = configuration[configurationIndex].bNumInterfaces
-        logger.debug("there are \(interfacesCount) interfaces on this device")
+        logger.trace("there are \(interfacesCount) interfaces on this device")
 
         // The operating system may have loaded a default driver for this device
         // (e.g. on linux, the 'ftdi_sio' driver will likely be loaded for the FTDI device
@@ -70,13 +68,14 @@ public class LUUSBDevice: USBDevice, DeviceCommon {
         let interface = configuration[configurationIndex].interface[Int(interfaceNumber)]
 
         let endpointCount = interface.altsetting[0].bNumEndpoints
-        logger.debug("Device/Interface has \(endpointCount) endpoints")
+        logger.trace("Device/Interface has \(endpointCount) endpoints")
         let endpoints = (0 ..< endpointCount).map { interface.altsetting[0].endpoint[Int($0)] }
         let addresses = endpoints.map { EndpointAddress(rawValue: $0.bEndpointAddress) }
         writeEndpoint = addresses.first { $0.isWritable }!
         readEndpoint = addresses.first { !$0.isWritable }!
 
         libusb_ref_device(device)  // now we won't throw
+        logger.debug("Device connected and endpoints configured.")
     }
 
     deinit {
@@ -85,8 +84,7 @@ public class LUUSBDevice: USBDevice, DeviceCommon {
         libusb_unref_device(device)
     }
 
-    /// Synchronously send USB control transfer.
-    /// - returns: number of bytes transferred (if success)
+    // Documented in protocol
     public func controlTransfer(requestType: BMRequestType, bRequest: UInt8, wValue: UInt16, wIndex: UInt16, data: Data?, wLength: UInt16) -> Int32 {
         // USB 2.0 9.3.4: wIndex
         // some interpretations (high bits 0):
@@ -100,6 +98,7 @@ public class LUUSBDevice: USBDevice, DeviceCommon {
         return libusb_control_transfer(handle, requestType, bRequest, wValue, wIndex, &dataCopy, wLength, libusbTimeout)
     }
 
+    // Documented in protocol
     public func bulkTransferOut(msg: Data) {
         let outgoingCount = Int32(msg.count)
 

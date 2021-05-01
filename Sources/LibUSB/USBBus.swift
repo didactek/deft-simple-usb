@@ -7,14 +7,17 @@
 //  SPDX-License-Identifier: Apache-2.0
 //
 
-#if SKIPMODULE
+#if SKIPMODULE  // See Package.swift discussion
 #else
 import Foundation
 import SimpleUSB
+import Logging
 import CLibUSB
 
+var logger = Logger(label: "com.didactek.deft-simple-usb.libusb")
+
 /// Bridge to the C library [libusb](https://libusb.info) functions imported by CLibUSB.
-/// Configure the subsystem and find devices attached to the bus.
+/// Configure the subsystem and provide services to find devices attached to the bus.
 public class LUUSBBus: USBBus {
     // FIXME: common: factor
     enum UsbError: Error {
@@ -35,7 +38,7 @@ public class LUUSBBus: USBBus {
 
     public init() {
         // FIXME: how to do this better, and where?
-        logger.logLevel = .trace
+        logger.logLevel = .debug
 
         Self.checkCall(libusb_init(&ctx)) { msg in // deinit: libusb_exit
             fatalError("libusb_init failed: \(msg)")
@@ -47,10 +50,7 @@ public class LUUSBBus: USBBus {
     }
 
 
-    /// - parameter idVendor: filter found devices by vendor, if not-nil.
-    /// - parameter idProduct: filter found devices by product, if not-nil. Requires idVendor.
-    /// - returns: the one device that matches the search criteria
-    /// - throws: if device is not found or criteria are not unique
+    // Documented in protocol
     public func findDevice(idVendor: Int?, idProduct: Int?) throws -> USBDevice {
         // scan for devices:
          var devicesBuffer: UnsafeMutablePointer<OpaquePointer?>? = nil
@@ -61,7 +61,7 @@ public class LUUSBBus: USBBus {
         guard deviceCount > 0 else {
             throw UsbError.noDeviceMatched
         }
-        logger.debug("found \(deviceCount) devices")
+        logger.trace("findDevice found \(deviceCount) devices")
 
         var details = (0 ..< deviceCount).map { deviceDetail(device: devicesBuffer![$0]!) }
 
@@ -107,9 +107,9 @@ public class LUUSBBus: USBBus {
     func deviceDetail(device: OpaquePointer) -> DeviceDescription {
         var descriptor = libusb_device_descriptor()
         let _ = libusb_get_device_descriptor(device, &descriptor)
-        logger.debug("vendor: \(String(descriptor.idVendor, radix: 16))")
-        logger.debug("product: \(String(descriptor.idProduct, radix: 16))")
-        logger.debug("device has \(descriptor.bNumConfigurations) configurations")
+        logger.trace("vendor: \(String(descriptor.idVendor, radix: 16))")
+        logger.trace("product: \(String(descriptor.idProduct, radix: 16))")
+        logger.trace("device has \(descriptor.bNumConfigurations) configurations")
 
         return DeviceDescription(
             device: device,

@@ -36,7 +36,9 @@ import LibUSB
 import HostFWUSB
 #endif
 
+/// Provide a platform-independent abstraction of the usermode USB subsystem
 public class PortableUSB {
+    /// Obtain a USBBus approriate for this platform.
     public static func platformBus() -> USBBus {
         #if USE_LIBUSB
         return LUUSBBus()

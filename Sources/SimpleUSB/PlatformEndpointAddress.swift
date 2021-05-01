@@ -26,6 +26,7 @@ public struct PlatformEndpointAddress<RawValue: FixedWidthInteger> {
     // Bit 7 is direction IN/OUT
     let directionMask = RawValue(EndpointDirection.input.rawValue | EndpointDirection.output.rawValue)
 
+    /// Check the endpoint descriptor direction bit (bit 7) for "in" or "out."
     public var isWritable: Bool {
         get {
             return rawValue & directionMask == EndpointDirection.output.rawValue

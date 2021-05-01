@@ -7,6 +7,7 @@
 //  SPDX-License-Identifier: Apache-2.0
 //
 
+/// Usermode USB services for finding (and subsequently accessing) USB-attached devices.
 public protocol USBBus {
     /// - parameter idVendor: filter found devices by vendor, if not-nil.
     /// - parameter idProduct: filter found devices by product, if not-nil. Requires idVendor.

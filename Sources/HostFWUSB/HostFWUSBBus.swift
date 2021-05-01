@@ -7,15 +7,19 @@
 //  SPDX-License-Identifier: Apache-2.0
 //
 
-#if SKIPMODULE
+#if SKIPMODULE  // See Package.swift discussion
 #else
 import Foundation
-import SimpleUSB
 import IOUSBHost
+import Logging
+import SimpleUSB
+
+var logger = Logger(label: "com.didactek.deft-simple-usb.host-fw-usb")
+// FIXME: how to default configuration to debug?
 
 
-/// On macOS, the bus services are always available, so an "object" of this type is just a pass-through
-/// to IOUSBHost services.
+/// Bridge to the macOS IOUSBHost usermode USB framework.
+/// Provide services to find devices attached to the bus.
 public class FWUSBBus: USBBus {
     enum UsbError: Error {
         case noDeviceMatched
@@ -24,7 +28,7 @@ public class FWUSBBus: USBBus {
 
     public init() {
         // FIXME: how to do this better, and where?
-        logger.logLevel = .trace
+        logger.logLevel = .debug
     }
 
     deinit {
@@ -37,17 +41,9 @@ public class FWUSBBus: USBBus {
     public func findDevice(idVendor: Int?, idProduct: Int?) throws -> USBDevice {
         // scan for devices:
         // create a matching dictionary:
-        #if false  // documentation suggests there is a helper here, but I can't find it:
-        let searchRequest = IOUSBHostDevice.createMatchingDictionary(
-            vendorID: idVendor,
-            productID: idProduct,
-            bcdDevice: nil,
-            deviceClass: nil,
-            deviceSubclass: nil,
-            deviceProtocol: nil,
-            speed: nil,
-            productIDArray: nil)
-        #else
+
+        // FIXME: the documentation suggests there is a IOUSBHostDevice.createMatchingDictionary
+        // helper, but I can't find the refined-for-Swift version.
         let deviceSearchPattern: [IOUSBHostMatchingPropertyKey : Int] = [
             .vendorID : idVendor!,
             .productID : idProduct!,
@@ -55,7 +51,6 @@ public class FWUSBBus: USBBus {
         let deviceDomain = [ "IOProviderClass": "IOUSBHostDevice" ]
         let searchRequest = (deviceSearchPattern as NSDictionary).mutableCopy() as! NSMutableDictionary
         searchRequest.addEntries(from: deviceDomain)
-        #endif
 
         #if true  // FIXME: use iterator approach; throw if not unique
         let service = IOServiceGetMatchingService(kIOMasterPortDefault, searchRequest)

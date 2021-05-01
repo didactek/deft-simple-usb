@@ -7,17 +7,17 @@
 //  SPDX-License-Identifier: Apache-2.0
 //
 
-#if SKIPMODULE
+#if SKIPMODULE  // See Package.swift discussion
 #else
 import Foundation
 import IOUSBHost
-import Logging
 import SimpleUSB
 
-var logger = Logger(label: "com.didactek.deft-simple-usb.host-fw-usb")
-// FIXME: how to default configuration to debug?
 
-
+/// Bridge to the macOS IOUSBHostDevice class in the IOUSBHost usermode USB framework.
+/// Obtain a FWUSBDevice from the findDevice vendor in the USBBus provider. FWUSBDevice
+/// configures default configuration endpoints for bulk read and write, and provides control transfer
+/// support.
 public class FWUSBDevice: USBDevice, DeviceCommon {
     public var timeout = TimeInterval(5)
 
@@ -37,7 +37,7 @@ public class FWUSBDevice: USBDevice, DeviceCommon {
 
         // check bNumInterfaces
         let interfacesCount = configuration.bNumInterfaces
-        logger.debug("Device supports \(interfacesCount) interfaces")
+        logger.trace("Device supports \(interfacesCount) interfaces")
 
         let interfaceDescriptionPtr = IOUSBGetNextInterfaceDescriptor(device.configurationDescriptor, nil /*zeroeth previous; first is next*/)
         // claim interface
@@ -79,7 +79,7 @@ public class FWUSBDevice: USBDevice, DeviceCommon {
                 endpointIterator = IOUSBGetNextEndpointDescriptor(interface.configurationDescriptor, interface.interfaceDescriptor, $0)
             }
         }
-        logger.debug("created \(endpointPipes.count) pipes")
+        logger.trace("created \(endpointPipes.count) pipes")
 
         guard endpointPipes.count == 2 else {
             throw USBError.claimInterface("expected to find bulk for read and write")
@@ -87,10 +87,11 @@ public class FWUSBDevice: USBDevice, DeviceCommon {
 
         writeEndpoint = endpointPipes.first(where: { EndpointAddress(rawValue: $0.endpointAddress).isWritable })!
         readEndpoint = endpointPipes.first(where: { !EndpointAddress(rawValue: $0.endpointAddress).isWritable })!
+
+        logger.debug("Connected to device with idVendor \(device.deviceDescriptor!.pointee.idVendor); idProduct: \(device.deviceDescriptor!.pointee.idProduct)")
     }
 
-
-    /// Synchronously send USB control transfer.
+    // Documented in protocol
     public func controlTransfer(requestType: BMRequestType, bRequest: UInt8, wValue: UInt16, wIndex: UInt16, data: Data?, wLength: UInt16) -> Int32 {
         // USB 2.0 9.3.4: wIndex
         // some interpretations (high bits 0):
@@ -115,11 +116,12 @@ public class FWUSBDevice: USBDevice, DeviceCommon {
         let request = IOUSBDeviceRequest(bmRequestType: requestType, bRequest: bRequest, wValue: wValue, wIndex: wIndex, wLength: wLength)
         var transferred: Int = 0
 
-        // FIXME: There is control request code described in the IOSUSBHostPipe headers,
-        // but they are marked NS_REFINED_FOR_SWIFT, suggesting there is an extension
-        // somewhere that provides a prettier API. However, I can't seem to find that
-        // extension, so am using the hidden-but-available function (hidden with
-        // a pair of leading underscores.
+        // FIXME: There are control request methods described in the IOSUSBHostPipe
+        // Objective-C headers, but they are marked NS_REFINED_FOR_SWIFT, suggesting
+        // there is an extension somewhere that provides a prettier API. However,
+        // I can't seem to find that extension, so am using the hidden-but-available
+        // method. (NS_REFINED_FOR_SWIFT mangles the method name with
+        // a pair of leading underscores.)
         try! device.__send(request, //IOUSBDeviceRequest)request
                            data: payload, //data:(nullable NSMutableData*)data
                            bytesTransferred: &transferred, //bytesTransferred:(nullable NSUInteger*)bytesTransferred
@@ -127,7 +129,7 @@ public class FWUSBDevice: USBDevice, DeviceCommon {
         return Int32(transferred)
     }
 
-
+    // Documented in protocol
     public func bulkTransferOut(msg: Data) {
         let payload = NSMutableData(data: msg)
 
@@ -149,11 +151,12 @@ public class FWUSBDevice: USBDevice, DeviceCommon {
         }
     }
 
+    // Documented in protocol
     public func bulkTransferIn() -> Data {
-        // provide space in a local buffer to hold read results
+        // Provide space in a local buffer to hold read results.
         // Note that 'capacity' and 'length' are different concepts, and it is
-        // the latter that matters when passing the buffer. Length initializes
-        // bytes to zero.
+        // the length (number of intialized bytes) that is used by the IO request
+        // machinery to infer the buffer size.
         let localBuffer = NSMutableData(length: Int(readEndpoint.descriptors.pointee.descriptor.wMaxPacketSize))
         var bytesReceived = 0
 
