@@ -7,6 +7,8 @@
 //  SPDX-License-Identifier: Apache-2.0
 //
 
+#if SKIPMODULE
+#else
 import Foundation
 import SimpleUSB
 import IOUSBHost
@@ -71,3 +73,4 @@ public class FWUSBBus: USBBus {
         return try FWUSBDevice(device: device)
     }
 }
+#endif

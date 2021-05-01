@@ -7,6 +7,8 @@
 //  SPDX-License-Identifier: Apache-2.0
 //
 
+#if SKIPMODULE
+#else
 import Foundation
 import IOUSBHost
 import Logging
@@ -169,3 +171,4 @@ public class FWUSBDevice: USBDevice, DeviceCommon {
         return Data(localBuffer!.prefix(bytesReceived))
     }
 }
+#endif

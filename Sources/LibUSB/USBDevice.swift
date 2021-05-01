@@ -7,6 +7,8 @@
 //  SPDX-License-Identifier: Apache-2.0
 //
 
+#if SKIPMODULE
+#else
 import Foundation
 import Logging
 import CLibUSB
@@ -127,3 +129,4 @@ public class LUUSBDevice: USBDevice, DeviceCommon {
         return Data(readBuffer.prefix(Int(readCount))) // FIXME: Xcode 11.6 / Swift 5.2.4: explicit constructor is needed to avoid crash in Data subrange if we just return the prefix!! This seems like a bug????
     }
 }
+#endif
