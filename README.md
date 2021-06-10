@@ -2,7 +2,9 @@
 
 Usermode support for writing custom USB device drivers in Swift on macOS and Linux.
 
-## API Usage
+## API
+
+### Usage
 
 Deft Simple USB provides a synchronous API.
 
@@ -11,6 +13,10 @@ Supports
 - Bulk transfer in/out to device
 - Control transfer requests to device
 
+### Logging
+
+Loggers are instantiated using the [deft-log](https://github.com/didactek/deft-log.git) library
+using the label prefix `com.didactek.deft-simple-usb`.
 
 ## Requirements
 
@@ -22,7 +28,7 @@ Mac requirements
 - Xcode 12+
 
 SPM Dependencies
-- swift-log
+- deft-log (transitively: swift-log)
 
 macOS C library dependencies
 - (libusb is optional)

@@ -11,10 +11,10 @@
 #else
 import Foundation
 import SimpleUSB
-import Logging
+import DeftLog
 import CLibUSB
 
-var logger = Logger(label: "com.didactek.deft-simple-usb.libusb")
+let logger = DeftLog.logger(label: "com.didactek.deft-simple-usb.libusb")
 
 /// Bridge to the C library [libusb](https://libusb.info) functions imported by CLibUSB.
 /// Configure the subsystem and provide services to find devices attached to the bus.

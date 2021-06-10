@@ -11,10 +11,10 @@
 #else
 import Foundation
 import IOUSBHost
-import Logging
+import DeftLog
 import SimpleUSB
 
-var logger = Logger(label: "com.didactek.deft-simple-usb.host-fw-usb")
+let logger = DeftLog.logger(label: "com.didactek.deft-simple-usb.host-fw-usb")
 // FIXME: how to default configuration to debug?
 
 
@@ -27,8 +27,6 @@ public class FWUSBBus: USBBus {
     }
 
     public init() {
-        // FIXME: how to do this better, and where?
-        logger.logLevel = .debug
     }
 
     deinit {
